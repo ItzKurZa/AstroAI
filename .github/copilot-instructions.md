@@ -19,7 +19,9 @@ This project is an AI-powered Vedic Astrologer App built with Flutter. It provid
 2. **State Management**: Create `feature_cubit.dart` and `feature_state.dart` using Freezed
 3. **Models**: Use Freezed with `@Default()` values and `abstract class` syntax (current codebase style)
 4. **UI Constants**: Always use `KSizes` from `lib/core/constants/k_sizes.dart` - never hardcode measurements
-5. **Code Generation**: Run `dart run build_runner build` after adding Freezed models
+5. **App Images**: All app-required images must be placed in `assets/images/app/`.
+6. **User Images**: All user-uploaded or user-specific images must be placed in `assets/images/users/`.
+7. **Code Generation**: Run `dart run build_runner build` after adding Freezed models
 
 ### Essential Commands
 
@@ -71,6 +73,19 @@ flutter clean && flutter pub get
    padding: EdgeInsets.all(KSizes.margin4x),  // ✅ Correct
    padding: EdgeInsets.all(16.0),             // ❌ Never do this
    ```
+
+### Asset Management
+
+- All app-required images must be stored in `assets/images/app/`.
+- All user-uploaded or user-specific images must be stored in `assets/images/users/`.
+- Update `pubspec.yaml` to include these asset folders:
+
+  ```yaml
+  flutter:
+    assets:
+      - assets/images/app/
+      - assets/images/users/
+  ```
 
 ### Dio + Retrofit Networking Pattern
 
