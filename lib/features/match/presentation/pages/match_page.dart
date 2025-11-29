@@ -1,17 +1,19 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/constants/app_colors.dart';
+import '../../../../core/utils/current_user.dart';
 import '../../../../core/widgets/app_background.dart';
 import '../../../../core/widgets/app_safe_image.dart';
-import '../../../../core/widgets/app_section_header.dart';
 import '../../../chat/presentation/pages/chat_page.dart';
-import '../../data/datasources/match_remote_data_source.dart';
-import '../../data/repositories/match_repository_impl.dart';
-import '../../domain/entities/match_profile.dart';
+import '../../../profile/data/datasources/profile_remote_data_source.dart';
+import '../../../profile/data/repositories/profile_repository_impl.dart';
+import '../../../profile/domain/entities/user_profile.dart';
+import '../../../notifications/presentation/pages/notifications_page.dart';
 
 class MatchPage extends StatefulWidget {
-  static const routeName = '/match';
+  static const routeName = '/astroai';
 
   const MatchPage({super.key});
 
@@ -20,193 +22,203 @@ class MatchPage extends StatefulWidget {
 }
 
 class _MatchPageState extends State<MatchPage> {
-  late final MatchRepositoryImpl _repository;
-  late Future<Map<String, List<MatchProfile>>> _future;
+  late final ProfileRepositoryImpl _profileRepository;
+  UserProfile? _userProfile;
 
   @override
   void initState() {
     super.initState();
-    _repository = MatchRepositoryImpl(
-      MatchRemoteDataSource(FirebaseFirestore.instance),
+    _profileRepository = ProfileRepositoryImpl(
+      ProfileRemoteDataSource(FirebaseFirestore.instance),
     );
-    _future = _repository.fetchMatchSections();
+    _loadUserProfile();
+  }
+
+  Future<void> _loadUserProfile() async {
+    try {
+      final userId = currentUserId; // This will throw if no user
+      final profile = await _profileRepository.fetchProfile(userId);
+      if (mounted) {
+        setState(() {
+          _userProfile = profile;
+        });
+      }
+    } catch (e) {
+      print('Error loading user profile: $e');
+      // If no user, navigate to login
+      if (mounted && e.toString().contains('No user logged in')) {
+        Navigator.of(context).pushReplacementNamed('/auth/login');
+      }
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final topPadding = MediaQuery.of(context).padding.top;
+    // Auto-navigate to chat when page loads
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Navigator.of(context).pushReplacementNamed(ChatPage.routeName);
+    });
+    
+    // Show loading while navigating
     return Scaffold(
       body: AppBackground(
-        padding: EdgeInsets.only(
-          top: topPadding + 16,
-          left: 20,
-          right: 20,
-          bottom: 16,
-        ),
+        padding: EdgeInsets.zero,
         child: SafeArea(
           top: false,
-          child: FutureBuilder<Map<String, List<MatchProfile>>>(
-            future: _future,
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              if (snapshot.hasError || !snapshot.hasData) {
-                return Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Text('Unable to load match suggestions.'),
-                      const SizedBox(height: 12),
-                      ElevatedButton(
-                        onPressed: () {
-                          setState(() {
-                            _future = _repository.fetchMatchSections();
-                          });
-                        },
-                        child: const Text('Retry'),
-                      ),
-                    ],
-                  ),
-                );
-              }
-              final data = snapshot.data!;
-              return ListView(
-                children: [
-                  _MatchSection(
-                    title: 'Friendship Partner',
-                    subtitle: 'New York, NY',
-                    profiles: data['friendship'] ?? const [],
-                  ),
-                  const SizedBox(height: 24),
-                  const _PremiumCard(),
-                  const SizedBox(height: 24),
-                  _MatchSection(
-                    title: 'Romantic Partners',
-                    subtitle: 'For your Venus & Mars',
-                    profiles: data['romantic'] ?? const [],
-                  ),
-                  const SizedBox(height: 24),
-                  _MatchSection(
-                    title: 'New people Today',
-                    subtitle: 'Fresh energies nearby',
-                    profiles: data['new'] ?? const [],
-                  ),
-                  const SizedBox(height: 120),
-                ],
-              );
-            },
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _MatchSection extends StatelessWidget {
-  const _MatchSection({
-    required this.title,
-    required this.subtitle,
-    required this.profiles,
-  });
-
-  final String title;
-  final String subtitle;
-  final List<MatchProfile> profiles;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        AppSectionHeader(
-          title: title,
-          subtitle: subtitle,
-          action: GestureDetector(
-            onTap: () => Navigator.of(context).pushNamed(ChatPage.routeName),
-            child: const Icon(
-              Icons.chat_bubble_outline,
-              color: AppColors.primary,
-              size: 24,
-            ),
-          ),
-        ),
-        ...profiles.map(
-          (profile) => _MatchCard(profile: profile),
-        ),
-      ],
-    );
-  }
-}
-
-class _MatchCard extends StatelessWidget {
-  const _MatchCard({required this.profile});
-
-  final MatchProfile profile;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      decoration: BoxDecoration(
-        color: AppColors.surfaceSecondary,
-        borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: AppColors.border),
-      ),
-      child: Column(
-        children: [
-          AppSafeImage(
-            imageUrl: profile.avatarUrl,
-            height: 200,
-            width: double.infinity,
-            fit: BoxFit.cover,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(20),
+          child: Center(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Row(
-                  children: [
-                    Text(profile.pronouns, style: theme.textTheme.labelLarge),
-                    const Spacer(),
-                    Text(profile.location, style: theme.textTheme.bodyMedium),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Text(profile.name, style: theme.textTheme.headlineSmall),
-                const SizedBox(height: 8),
-                Text('${profile.sunSign}  •  ${profile.moonSign}',
-                    style: theme.textTheme.bodyMedium),
-                const SizedBox(height: 12),
-                Text(profile.bio, style: theme.textTheme.bodyMedium),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  children: profile.tags
-                      .map(
-                        (tag) => Chip(
-                          label: Text(tag),
-                          backgroundColor: AppColors.surfacePrimary,
-                        ),
-                      )
-                      .toList(),
-                ),
+                const CircularProgressIndicator(),
                 const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    onPressed: () =>
-                        Navigator.of(context).pushNamed(ChatPage.routeName),
-                    child: const Text('Chat with Advisor'),
-                  ),
+                Text(
+                  'Opening AstroAI...',
+                  style: Theme.of(context).textTheme.bodyLarge,
                 ),
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _MatchHeader extends StatelessWidget {
+  const _MatchHeader({this.userProfile});
+
+  final UserProfile? userProfile;
+
+  @override
+  Widget build(BuildContext context) {
+    final topPadding = MediaQuery.of(context).padding.top;
+    return Container(
+      padding: EdgeInsets.only(
+        top: topPadding + 16,
+        left: 16,
+        right: 16,
+        bottom: 16,
+      ),
+      decoration: const BoxDecoration(
+        color: AppColors.surfacePrimary,
+        border: Border(
+          bottom: BorderSide(color: Colors.white, width: 1),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          // Left: Avatar + Name (sát bên trái)
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AppAvatar(
+                imageUrl: userProfile?.avatarUrl ?? '',
+                size: 48,
+                borderColor: Colors.white,
+              ),
+              const SizedBox(width: 12),
+              Text(
+                userProfile?.displayName ?? 'User',
+                style: GoogleFonts.literata(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
+          // Right: Notification icon (sát bên phải)
+          GestureDetector(
+            onTap: () {
+              Navigator.of(context).pushNamed(NotificationsPage.routeName);
+            },
+            child: const Icon(
+              Icons.notifications_outlined,
+              color: Colors.white,
+              size: 24,
+            ),
+          ),
         ],
+      ),
+    );
+  }
+}
+
+class _AdvisorChatCard extends StatelessWidget {
+  const _AdvisorChatCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        color: AppColors.surfacePrimary.withOpacity(0.1),
+        border: Border.all(
+          color: AppColors.primary.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      padding: const EdgeInsets.all(20),
+      child: InkWell(
+        onTap: () {
+          // Navigate to chat with advisor (no targetUserId = chat with advisor)
+          Navigator.of(context).pushNamed(ChatPage.routeName);
+        },
+        borderRadius: BorderRadius.circular(20),
+        child: Row(
+          children: [
+            // Advisor icon/avatar
+            Container(
+              width: 60,
+              height: 60,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFBCA8F4), Color(0xFF836FF2)],
+                ),
+              ),
+              child: const Icon(
+                Icons.auto_awesome,
+                color: Colors.white,
+                size: 32,
+              ),
+            ),
+            const SizedBox(width: 16),
+            // Text content
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Chat with Advisor',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.primary,
+                        ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Ask me anything about astrology, your birth chart, or daily horoscope',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Colors.grey[600],
+                        ),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            // Arrow icon
+            Icon(
+              Icons.arrow_forward_ios,
+              color: AppColors.primary,
+              size: 20,
+            ),
+          ],
+        ),
       ),
     );
   }

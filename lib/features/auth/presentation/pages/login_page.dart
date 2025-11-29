@@ -1,106 +1,317 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/constants/app_colors.dart';
+import '../../../../core/services/astrology_service.dart';
 import '../../../../core/services/location_service.dart';
+import '../../../../core/services/freeastrology_firebase_sync.dart';
+import '../../../../core/services/auth_service.dart';
+import '../../../../core/services/data_preloader_service.dart';
+import '../../../../core/services/astrology_sync_on_login.dart';
+import '../../../../core/firebase/firestore_seeder.dart';
 import '../../../../core/widgets/app_background.dart';
 import '../../../onboarding/presentation/widgets/onboarding_primitives.dart';
 
-class LoginPage extends StatelessWidget {
+class LoginPage extends StatefulWidget {
   static const routeName = '/auth/login';
 
   const LoginPage({super.key});
 
   @override
+  State<LoginPage> createState() => _LoginPageState();
+}
+
+class _LoginPageState extends State<LoginPage> {
+  final _formKey = GlobalKey<FormState>();
+  final _emailController = TextEditingController();
+  final _phoneController = TextEditingController();
+  final _passwordController = TextEditingController();
+  bool _obscurePassword = true;
+  bool _isLoading = false;
+  String? _errorMessage;
+  bool _loginUsingEmail = false;
+
+  String _countryLabel = 'VN';
+  String _dialCode = '+84';
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _phoneController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  String? _validateEmail(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return _loginUsingEmail ? 'Email is required' : 'Phone number is required';
+    }
+    if (_loginUsingEmail) {
+      final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+      if (!emailRegex.hasMatch(value.trim())) {
+        return 'Please enter a valid email';
+      }
+    } else {
+      final digitsOnly = value.replaceAll(RegExp(r'\\s+|-'), '');
+      if (digitsOnly.length < 9) {
+        return 'Please enter a valid phone number';
+      }
+    }
+    return null;
+  }
+
+  String? _validatePassword(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'Password is required';
+    }
+    if (value.length < 6) {
+      return 'Password must be at least 6 characters';
+    }
+    return null;
+  }
+
+  Future<void> _showLoginCountryPicker() async {
+    final options = [
+      {'label': 'Vietnam', 'code': 'VN', 'dial': '+84'},
+      {'label': 'United States', 'code': 'US', 'dial': '+1'},
+      {'label': 'United Kingdom', 'code': 'UK', 'dial': '+44'},
+      {'label': 'Japan', 'code': 'JP', 'dial': '+81'},
+      {'label': 'South Korea', 'code': 'KR', 'dial': '+82'},
+      {'label': 'China', 'code': 'CN', 'dial': '+86'},
+      {'label': 'Thailand', 'code': 'TH', 'dial': '+66'},
+      {'label': 'Singapore', 'code': 'SG', 'dial': '+65'},
+      {'label': 'Malaysia', 'code': 'MY', 'dial': '+60'},
+      {'label': 'Australia', 'code': 'AU', 'dial': '+61'},
+      {'label': 'Canada', 'code': 'CA', 'dial': '+1'},
+    ];
+
+    final result = await showModalBottomSheet<Map<String, String>>(
+      context: context,
+      builder: (context) {
+        final height = MediaQuery.of(context).size.height;
+        return SafeArea(
+          child: SizedBox(
+            height: height * 0.6,
+            child: Column(
+              children: [
+                const SizedBox(height: 12),
+                Text(
+                  'Choose country',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                Expanded(
+                  child: ListView.separated(
+                    itemCount: options.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final option = options[index];
+                      return ListTile(
+                        title: Text(option['label']!),
+                        subtitle: Text(option['code']!),
+                        trailing: Text(option['dial']!),
+                        onTap: () => Navigator.of(context).pop(option),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (result != null && mounted) {
+      setState(() {
+        _countryLabel = result['code']!;
+        _dialCode = result['dial']!;
+      });
+    }
+  }
+
+  Future<void> _handleLogin() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final authService = AuthService.instance;
+      UserCredential? userCredential;
+
+      if (_loginUsingEmail) {
+        // Email/Password login - validate with Firebase
+        userCredential = await authService.loginWithEmail(
+          email: _emailController.text.trim(),
+          password: _passwordController.text,
+        );
+      } else {
+        // Phone number login - validate with Firestore
+        // Note: Phone login requires password for now
+        // In production, implement phone auth with OTP
+        // Normalize phone number (remove spaces, ensure proper format)
+        final phoneInput = _phoneController.text.trim().replaceAll(RegExp(r'[\s\-\(\)\.]'), '');
+        final phoneNumber = '$_dialCode$phoneInput';
+        print('📱 Login attempt with phone: $phoneNumber');
+        
+        // For phone login, we need password
+        // Check if password field exists (you may need to add it to UI)
+        final password = _passwordController.text;
+        if (password.isEmpty) {
+          throw Exception('Password is required for phone login');
+        }
+        
+        userCredential = await authService.loginWithPhone(
+          phoneNumber: phoneNumber,
+          password: password,
+        );
+      }
+
+      if (userCredential.user != null) {
+        final userId = userCredential.user!.uid;
+        
+        // Sync astrology data for this user (ensures each user has their own data)
+        try {
+          final syncService = AstrologySyncOnLogin.instance;
+          await syncService.syncAfterLogin();
+        } catch (e) {
+          print('⚠️ Error syncing astrology data on login: $e');
+          // Continue even if sync fails
+        }
+        
+        // Preload all data in background (non-blocking)
+        // This includes user profile, home content, etc.
+        DataPreloaderService.instance.preloadAllData(userId).catchError((e) {
+          print('⚠️ Error preloading data: $e');
+        });
+
+        if (mounted) {
+          Navigator.of(context).pushReplacementNamed('/app');
+        }
+      } else {
+        throw Exception('Login failed: No user returned');
+      }
+    } on Exception catch (e) {
+      setState(() {
+        _errorMessage = e.toString().replaceFirst('Exception: ', '');
+      });
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Login failed. Please check your credentials.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  void _toggleLoginMethod() {
+    setState(() {
+      _loginUsingEmail = !_loginUsingEmail;
+      _emailController.clear();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: AppBackground(
-        padding: const EdgeInsets.all(24),
-        child: SafeArea(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              IconButton(
-                onPressed: () => Navigator.of(context).maybePop(),
-                icon: Image.asset(
-                  'assets/images/app/icons/Normal Left.png',
-                  height: 28,
-                  width: 28,
-                ),
-              ),
-              const SizedBox(height: 24),
-              Text('Log In', style: Theme.of(context).textTheme.headlineLarge),
-              const SizedBox(height: 8),
-              Text(
-                'Enter the email and password you used to create your Advisor account.',
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 32),
-              _SectionLabel(text: 'Email'),
-              const SizedBox(height: 8),
-              TextField(
-                keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(hintText: 'Enter your email'),
-              ),
-              const SizedBox(height: 24),
-              _SectionLabel(text: 'Password'),
-              const SizedBox(height: 8),
-              TextField(
-                obscureText: true,
-                decoration: InputDecoration(
-                  hintText: 'Create a Password',
-                  suffixIcon: Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: Image.asset(
-                      'assets/images/app/icons/Eye-off.png',
-                      width: 24,
-                      height: 24,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 32),
-              ElevatedButton(
-                onPressed: () {},
-                child: const Text('Log In'),
-              ),
-              const SizedBox(height: 24),
-              const _OrDivider(),
-              const SizedBox(height: 24),
-              const _SocialButton(
-                iconData: Icons.g_mobiledata,
-                label: 'Log In with Google',
-              ),
-              const SizedBox(height: 16),
-              const _SocialButton(
-                iconData: Icons.apple,
-                label: 'Log In with Apple',
-              ),
-              const Spacer(),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    "Don't have an account? ",
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                  GestureDetector(
-                    onTap: () {
-                      Navigator.of(context).pushNamed(SignUpFlowPage.routeName);
-                    },
-                    child: Text(
-                      'Sign up',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            color: AppColors.primary,
-                            fontWeight: FontWeight.bold,
-                            decoration: TextDecoration.underline,
-                          ),
-                    ),
-                  ),
+      backgroundColor: const Color(0xFF1B0D42),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _TopBar(onBack: () => Navigator.of(context).maybePop()),
+                const SizedBox(height: 24),
+                if (_errorMessage != null) ...[
+                  _ErrorBanner(message: _errorMessage!),
+                  const SizedBox(height: 16),
                 ],
-              ),
-              const SizedBox(height: 16),
-              const HomeIndicatorBar(),
-            ],
+                _FieldHeader(
+                  label: _loginUsingEmail ? 'Email Address' : 'Phone Number',
+                  actionLabel: _loginUsingEmail
+                      ? 'Login using Phone'
+                      : 'Login using Email',
+                  onActionTap: _toggleLoginMethod,
+                ),
+                const SizedBox(height: 8),
+                if (_loginUsingEmail)
+                  _LoginTextField(
+                    label: 'Email Address',
+                    controller: _emailController,
+                    hintText: 'you@example.com',
+                    validator: _validateEmail,
+                    keyboardType: TextInputType.emailAddress,
+                    showLabel: false,
+                  )
+                else
+                  _LoginPhoneField(
+                    countryLabel: _countryLabel,
+                    dialCode: _dialCode,
+                    controller: _phoneController,
+                    validator: _validateEmail,
+                    onCountryTap: _showLoginCountryPicker,
+                    showLabel: false,
+                  ),
+                const SizedBox(height: 20),
+                _FieldHeader(
+                  label: 'Create a Password',
+                  actionLabel: null,
+                  onActionTap: null,
+                ),
+                const SizedBox(height: 8),
+                _LoginTextField(
+                  label: 'Create a Password',
+                  controller: _passwordController,
+                  hintText: '••••••••',
+                  validator: _validatePassword,
+                  obscureText: _obscurePassword,
+                  showLabel: false,
+                  suffix: IconButton(
+                    onPressed: () =>
+                        setState(() => _obscurePassword = !_obscurePassword),
+                    icon: Image.asset(
+                      _obscurePassword
+                          ? 'assets/images/app/icons/Eye-off.png'
+                          : 'assets/images/app/icons/Eye.png',
+                      width: 20,
+                      height: 20,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                const _OrDivider(),
+                const SizedBox(height: 16),
+                const _SocialButton(
+                  iconData: Icons.g_mobiledata,
+                  label: 'Log In with Google',
+                ),
+                const SizedBox(height: 12),
+                const _SocialButton(
+                  iconData: Icons.apple,
+                  label: 'Log In with Apple',
+                ),
+                const SizedBox(height: 24),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: _ArrowButton(
+                    onTap: _isLoading ? null : _handleLogin,
+                    loading: _isLoading,
+                  ),
+                ),
+                const SizedBox(height: 32),
+                const Center(child: HomeIndicatorBar()),
+              ],
+            ),
           ),
         ),
       ),
@@ -131,6 +342,7 @@ class _SignUpFlowPageState extends State<SignUpFlowPage> {
   String _selectedCountryCode = 'VN';
   String _dialCode = '+84';
   bool _obscurePassword = true;
+  bool _isLoading = false;
 
   static const int _stepCount = 4;
   final LocationService _locationService = LocationService();
@@ -158,16 +370,291 @@ class _SignUpFlowPageState extends State<SignUpFlowPage> {
     super.dispose();
   }
 
+  String? _validationError;
+
+  bool _validateCurrentStep() {
+    setState(() => _validationError = null);
+    
+    switch (_currentStep) {
+      case 0: // Phone number
+        if (_phoneController.text.trim().isEmpty) {
+          setState(() => _validationError = 'Please enter your phone number');
+          return false;
+        }
+        if (_phoneController.text.trim().length < 9) {
+          setState(() => _validationError = 'Please enter a valid phone number');
+          return false;
+        }
+        break;
+      case 1: // Username
+        if (_usernameController.text.trim().isEmpty) {
+          setState(() => _validationError = 'Please enter a username');
+          return false;
+        }
+        if (_usernameController.text.trim().length < 3) {
+          setState(() => _validationError = 'Username must be at least 3 characters');
+          return false;
+        }
+        final usernameRegex = RegExp(r'^[a-zA-Z0-9_]+$');
+        if (!usernameRegex.hasMatch(_usernameController.text.trim())) {
+          setState(() => _validationError = 'Username can only contain letters, numbers and underscores');
+          return false;
+        }
+        break;
+      case 2: // Password
+        if (_passwordController.text.isEmpty) {
+          setState(() => _validationError = 'Please enter a password');
+          return false;
+        }
+        if (_passwordController.text.length < 6) {
+          setState(() => _validationError = 'Password must be at least 6 characters');
+          return false;
+        }
+        break;
+      case 3: // Birth details
+        if (_birthDateController.text.isEmpty) {
+          setState(() => _validationError = 'Please select your birth date');
+          return false;
+        }
+        if (_birthPlaceController.text.trim().isEmpty) {
+          setState(() => _validationError = 'Please enter your birth place');
+          return false;
+        }
+        break;
+    }
+    return true;
+  }
+
   void _handleNext() {
     FocusScope.of(context).unfocus();
+    
+    if (!_validateCurrentStep()) {
+      // Show error snackbar
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_validationError ?? 'Please fill in all required fields'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    
     if (_currentStep == _stepCount - 1) {
-      Navigator.of(context).pushReplacementNamed('/app');
+      _completeSignUp();
       return;
     }
     _controller.nextPage(
       duration: const Duration(milliseconds: 300),
       curve: Curves.easeOutCubic,
     );
+  }
+
+  Future<void> _completeSignUp() async {
+    try {
+      // Show loading
+      if (!mounted) return;
+      
+      setState(() {
+        _isLoading = true;
+        _validationError = null;
+      });
+      
+      // Validate all fields
+      if (!_validateCurrentStep()) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_validationError ?? 'Please fill in all required fields'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+      
+      // Get all form data
+      final phoneNumber = '$_dialCode${_phoneController.text.trim()}';
+      final password = _passwordController.text;
+      final birthDateStr = _birthDateController.text.trim();
+      final birthTimeStr = _birthTimeController.text.trim();
+      final birthPlaceStr = _birthPlaceController.text.trim();
+      final usernameStr = _usernameController.text.trim();
+      
+      // Validate password
+      if (password.isEmpty) {
+        throw Exception('Password is required');
+      }
+      if (password.length < 6) {
+        throw Exception('Password must be at least 6 characters');
+      }
+      
+      // Get latitude/longitude from birth place first (needed for signup)
+      double latitude = 0.0;
+      double longitude = 0.0;
+      if (birthPlaceStr.isNotEmpty) {
+        try {
+          final locationService = LocationService();
+          final locations = await locationService.searchAddress(birthPlaceStr);
+          if (locations.isNotEmpty) {
+            latitude = locations.first['latitude'] as double;
+            longitude = locations.first['longitude'] as double;
+          }
+        } catch (e) {
+          print('Error getting location coordinates: $e');
+        }
+      }
+      
+      // Parse birth date
+      DateTime? birthDate;
+      try {
+        if (birthDateStr.contains('/')) {
+          final parts = birthDateStr.split('/');
+          if (parts.length == 3) {
+            birthDate = DateTime(
+              int.parse(parts[2]),
+              int.parse(parts[1]),
+              int.parse(parts[0]),
+            );
+          }
+        } else if (birthDateStr.contains('-')) {
+          birthDate = DateTime.parse(birthDateStr);
+        }
+      } catch (e) {
+        throw Exception('Invalid birth date format');
+      }
+      
+      if (birthDate == null) {
+        throw Exception('Birth date is required');
+      }
+      
+      // Create user account with AuthService (validates against Firebase)
+      final authService = AuthService.instance;
+      final userCredential = await authService.signUpWithPhone(
+        phoneNumber: phoneNumber,
+        password: password,
+        displayName: usernameStr.isNotEmpty ? usernameStr : 'User',
+        birthDate: birthDateStr,
+        birthTime: birthTimeStr,
+        birthPlace: birthPlaceStr,
+        latitude: latitude,
+        longitude: longitude,
+      );
+      
+      final userId = userCredential.user?.uid ?? '';
+      if (userId.isEmpty) {
+        throw Exception('Failed to create user account');
+      }
+
+      // Calculate astrological signs
+      final astrologyService = AstrologyService.instance;
+      String sunSign = 'Unknown';
+      String moonSign = 'Unknown';
+      String ascendantSign = 'Unknown';
+
+      try {
+        sunSign = await astrologyService.getSunSign(birthDate);
+        moonSign = await astrologyService.getMoonSign(
+          birthDate,
+          birthTimeStr,
+          latitude: latitude,
+          longitude: longitude,
+        );
+        ascendantSign = await astrologyService.getAscendant(
+          birthDate,
+          birthTimeStr,
+          latitude,
+          longitude,
+        );
+      } catch (e) {
+        // Use fallback methods
+        sunSign = astrologyService.getSunSignFromDate(birthDate);
+        moonSign = astrologyService.getMoonSignFromDate(birthDate, birthTimeStr);
+        ascendantSign = astrologyService.getAscendantFromTime(
+          birthDate,
+          birthTimeStr,
+          latitude,
+        );
+      }
+
+      // Update user profile in Firestore with astrological signs
+      final firestore = FirebaseFirestore.instance;
+      await firestore.collection('users').doc(userId).update({
+        'sunSign': sunSign,
+        'moonSign': moonSign,
+        'ascendantSign': ascendantSign,
+        'planType': 'Free',
+        'avatarUrl': 'assets/images/app/logo.png',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      // Initialize user preferences
+      await firestore.doc('user_preferences/$userId').set({
+        'profileTab': 'Chart',
+        'horoscopeEnabled': true,
+        'notificationsSkipped': false,
+        'createdAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+
+      // Sync astrology data from FreeAstrologyAPI to Firebase
+      if (latitude != 0.0 && longitude != 0.0) {
+        try {
+          final syncService = FreeAstrologyFirebaseSync.instance;
+          await syncService.syncAllUserAstrologyData(
+            userId: userId,
+            birthDate: birthDate,
+            birthTime: birthTimeStr,
+            latitude: latitude,
+            longitude: longitude,
+            sunSign: sunSign,
+          );
+        } catch (e) {
+          print('Error syncing astrology data: $e');
+          // Continue even if sync fails
+        }
+      }
+
+      // Initialize user-specific content (notification prefs, chat thread)
+      final seeder = FirestoreSeeder(firestore);
+      await seeder.ensureUserContent(userId);
+
+      // Preload all data in background (non-blocking)
+      DataPreloaderService.instance.preloadAllData(userId).catchError((e) {
+        print('⚠️ Error preloading data: $e');
+      });
+
+      // Navigate to app
+      if (mounted) {
+        Navigator.of(context).pushReplacementNamed('/app');
+      }
+    } on Exception catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        final errorMessage = e.toString().replaceFirst('Exception: ', '');
+        print('❌ Signup error: $errorMessage');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(errorMessage),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+        print('❌ Unexpected signup error: $e');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to create account: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _showCountryPicker() async {
@@ -356,16 +843,306 @@ class _SignUpFlowPageState extends State<SignUpFlowPage> {
   }
 }
 
-class _SectionLabel extends StatelessWidget {
-  const _SectionLabel({required this.text});
+class _ErrorBanner extends StatelessWidget {
+  const _ErrorBanner({required this.message});
 
-  final String text;
+  final String message;
 
   @override
   Widget build(BuildContext context) {
-    return Text(
-      text,
-      style: Theme.of(context).textTheme.titleMedium,
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.red.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.error_outline, color: Colors.red, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: theme.textTheme.bodySmall?.copyWith(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LoginTextField extends StatelessWidget {
+  const _LoginTextField({
+    required this.label,
+    required this.controller,
+    required this.hintText,
+    this.validator,
+    this.obscureText = false,
+    this.keyboardType,
+    this.suffix,
+    this.showLabel = true,
+  });
+
+  final String label;
+  final TextEditingController controller;
+  final String hintText;
+  final FormFieldValidator<String>? validator;
+  final bool obscureText;
+  final TextInputType? keyboardType;
+  final Widget? suffix;
+  final bool showLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (showLabel)
+          Text(
+            label,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        if (showLabel) const SizedBox(height: 8),
+        TextFormField(
+          controller: controller,
+          validator: validator,
+          obscureText: obscureText,
+          keyboardType: keyboardType,
+          decoration: InputDecoration(
+            hintText: hintText,
+            filled: true,
+            fillColor: Colors.white.withValues(alpha: 0.04),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 18,
+              vertical: 16,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(20),
+              borderSide: BorderSide(
+                color: Colors.white.withValues(alpha: 0.12),
+              ),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(20),
+              borderSide: BorderSide(
+                color: Colors.white.withValues(alpha: 0.12),
+              ),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(20),
+              borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+            ),
+            suffixIcon: suffix,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _LoginPhoneField extends StatelessWidget {
+  const _LoginPhoneField({
+    required this.countryLabel,
+    required this.dialCode,
+    required this.controller,
+    required this.validator,
+    required this.onCountryTap,
+    this.showLabel = true,
+  });
+
+  final String countryLabel;
+  final String dialCode;
+  final TextEditingController controller;
+  final FormFieldValidator<String>? validator;
+  final VoidCallback onCountryTap;
+  final bool showLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    const accentColor = Color(0xFF614B9F);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (showLabel)
+          Text(
+            'Phone Number',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        if (showLabel) const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.04),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: Colors.white.withValues(alpha: 0.12),
+            ),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          child: Row(
+            children: [
+              GestureDetector(
+                onTap: onCountryTap,
+                behavior: HitTestBehavior.translucent,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      countryLabel,
+                      style: theme.textTheme.titleMedium,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      dialCode,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: accentColor,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 2),
+                    Image.asset(
+                      'assets/images/app/icons/Normal Down.png',
+                      height: 14,
+                      width: 14,
+                      color: accentColor,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: TextFormField(
+                  controller: controller,
+                  validator: validator,
+                  keyboardType: TextInputType.phone,
+                  decoration: InputDecoration(
+                    hintText: '921 345 - 67 - 89',
+                    hintStyle: theme.textTheme.titleMedium?.copyWith(
+                      color: accentColor.withValues(alpha: 0.9),
+                    ),
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    isDense: true,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  cursorColor: accentColor,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: accentColor,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TopBar extends StatelessWidget {
+  const _TopBar({required this.onBack});
+
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onBack,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.arrow_back, color: Colors.white, size: 20),
+          const SizedBox(width: 8),
+          Text(
+            'Log In',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _FieldHeader extends StatelessWidget {
+  const _FieldHeader({
+    required this.label,
+    required this.actionLabel,
+    required this.onActionTap,
+  });
+
+  final String label;
+  final String? actionLabel;
+  final VoidCallback? onActionTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        Text(
+          label,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const Spacer(),
+        if (actionLabel != null && onActionTap != null)
+          GestureDetector(
+            onTap: onActionTap,
+            child: Text(
+              actionLabel!,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: AppColors.primary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _ArrowButton extends StatelessWidget {
+  const _ArrowButton({required this.onTap, required this.loading});
+
+  final VoidCallback? onTap;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: loading ? null : onTap,
+      child: Container(
+        width: 56,
+        height: 56,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.4), width: 2),
+        ),
+        child: Center(
+          child: loading
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.arrow_forward, color: Colors.white),
+        ),
+      ),
     );
   }
 }
@@ -395,7 +1172,7 @@ class _PhoneNumberField extends StatelessWidget {
           decoration: BoxDecoration(
             border: Border.symmetric(
               horizontal: BorderSide(
-                color: dividerColor.withOpacity(0.9),
+                color: dividerColor.withValues(alpha: 0.9),
                 width: 1,
               ),
             ),
@@ -453,7 +1230,7 @@ class _PhoneNumberField extends StatelessWidget {
                     decoration: InputDecoration(
                       hintText: '921 345 - 67 - 89',
                       hintStyle: theme.textTheme.titleMedium
-                          ?.copyWith(color: accentColor.withOpacity(0.9)),
+                          ?.copyWith(color: accentColor.withValues(alpha: 0.9)),
                       isDense: true,
                     ),
                   ),
@@ -900,7 +1677,7 @@ class _NextArrowButton extends StatelessWidget {
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           border: Border.all(color: AppColors.borderStrong, width: 1.4),
-          color: AppColors.surfacePrimary.withOpacity(0.6),
+          color: AppColors.surfacePrimary.withValues(alpha: 0.6),
         ),
         child: const Icon(Icons.arrow_forward, color: AppColors.primary),
       ),
@@ -919,7 +1696,7 @@ class _LocationSearchSheet extends StatefulWidget {
 
 class _LocationSearchSheetState extends State<_LocationSearchSheet> {
   final TextEditingController _queryController = TextEditingController();
-  List<Map<String, String>> _results = const [];
+  List<Map<String, dynamic>> _results = const [];
   bool _isLoading = false;
 
   @override
@@ -1004,8 +1781,18 @@ class _LocationSearchSheetState extends State<_LocationSearchSheet> {
                 itemBuilder: (context, index) {
                   final item = _results[index];
                   return ListTile(
-                    title: Text(item['display_name'] ?? ''),
-                    onTap: () => Navigator.of(context).pop(item),
+                    title: Text(item['display_name']?.toString() ?? ''),
+                    onTap: () {
+                      // Convert to Map<String, String> for compatibility
+                      final result = <String, String>{
+                        'display_name': item['display_name']?.toString() ?? '',
+                        'lat': item['lat']?.toString() ?? '',
+                        'lng': item['lng']?.toString() ?? '',
+                        'latitude': item['latitude']?.toString() ?? '',
+                        'longitude': item['longitude']?.toString() ?? '',
+                      };
+                      Navigator.of(context).pop(result);
+                    },
                   );
                 },
               ),
@@ -1029,7 +1816,10 @@ class _SocialButton extends StatelessWidget {
       child: OutlinedButton(
         style: OutlinedButton.styleFrom(
           padding: const EdgeInsets.symmetric(vertical: 16),
-          side: const BorderSide(color: AppColors.borderStrong),
+          side: BorderSide(
+            color: Colors.white.withValues(alpha: 0.18),
+          ),
+          backgroundColor: Colors.white.withValues(alpha: 0.04),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(18),
           ),

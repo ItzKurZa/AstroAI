@@ -1,111 +1,103 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../services/daily_planetary_service.dart';
+import '../services/you_today_updater.dart';
+import '../services/tip_of_day_service.dart';
 import 'firestore_paths.dart';
-import 'sample_data.dart';
 
 class FirestoreSeeder {
   FirestoreSeeder(this._firestore);
 
   final FirebaseFirestore _firestore;
 
-  Future<void> ensureInitialContent(String userId) async {
+  /// Seed general content (not user-specific)
+  /// This should only be called once, not per user
+  /// Note: No longer seeding matches, horoscopes, characteristics - using real data only
+  Future<void> ensureGeneralContent() async {
     await Future.wait([
-      _ensureUser(userId),
-      _ensureNotificationPrefs(userId),
       _ensurePlanets(),
       _ensureYouToday(),
       _ensureTipOfDay(),
-      _ensureHoroscopes(),
-      _ensureMatches(),
-      _ensureCharacteristics(),
+      _ensureAstrologicalEvents(),
+    ]);
+  }
+
+  /// Seed user-specific content (only called after proper signup)
+  Future<void> ensureUserContent(String userId) async {
+    await Future.wait([
+      _ensureNotificationPrefs(userId),
       _ensureChatThread(userId),
     ]);
   }
 
-  Future<void> _ensureUser(String userId) async {
-    final doc = _firestore.doc(FirestorePaths.user(userId));
-    await doc.set(sampleUserProfile, SetOptions(merge: true));
-  }
-
   Future<void> _ensureNotificationPrefs(String userId) async {
+    // Create default notification preferences (real data, not sample)
     final doc = _firestore.doc(FirestorePaths.notificationPrefsDoc(userId));
-    await doc.set(sampleNotificationPrefs, SetOptions(merge: true));
+    if (!(await doc.get()).exists) {
+      await doc.set({
+        'dailyDigest': true,
+        'friendAdded': true,
+        'friendAccepted': false,
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    }
   }
 
   Future<void> _ensurePlanets() async {
-    final doc = _firestore.doc(FirestorePaths.planetsTodayDoc());
-    await doc.set(samplePlanetsDoc, SetOptions(merge: true));
+    // Use DailyPlanetaryService to calculate real planetary positions from FreeAstrologyAPI
+    // This ensures data is always accurate and from API
+    try {
+      final planetaryService = DailyPlanetaryService.instance;
+      await planetaryService.calculateAndSaveDailyPlanets(
+        date: DateTime.now(),
+        forceRecalculate: false,
+      );
+    } catch (e) {
+      print('⚠️ Error generating planetary data: $e');
+      // Don't throw - data will be generated when needed
+    }
   }
 
   Future<void> _ensureYouToday() async {
-    final doc = _firestore.doc(FirestorePaths.youTodayDoc());
-    await doc.set(sampleYouTodayDoc, SetOptions(merge: true));
+    // Use YouTodayUpdater to generate real data from FreeAstrologyAPI
+    try {
+      final youTodayUpdater = YouTodayUpdater.instance;
+      await youTodayUpdater.updateYouToday(date: DateTime.now());
+    } catch (e) {
+      print('⚠️ Error generating you_today: $e');
+      // Don't throw - this is non-critical initialization
+    }
   }
 
   Future<void> _ensureTipOfDay() async {
-    final doc = _firestore.doc(FirestorePaths.tipOfDayDoc());
-    await doc.set(sampleTipDoc, SetOptions(merge: true));
+    // Use TipOfDayService to generate real data from FreeAstrologyAPI
+    try {
+      final tipService = TipOfDayService.instance;
+      await tipService.getTipOfDay(date: DateTime.now());
+    } catch (e) {
+      print('⚠️ Error generating tip of day: $e');
+      // Don't throw - this is non-critical initialization
+    }
   }
 
-  Future<void> _ensureHoroscopes() async {
-    await _syncCollection(
-      _firestore.collection(FirestorePaths.horoscopesCollection()),
-      sampleHoroscopeArticles,
-    );
-  }
-
-  Future<void> _ensureMatches() async {
-    await _syncCollection(
-      _firestore.collection(FirestorePaths.matchesCollection()),
-      sampleMatchProfiles,
-    );
-  }
-
-  Future<void> _ensureCharacteristics() async {
-    await _syncCollection(
-      _firestore.collection(FirestorePaths.characteristicsCollection()),
-      sampleCharacteristics,
-    );
-  }
 
   Future<void> _ensureChatThread(String userId) async {
+    // Create Advisor AI chat thread
     final threadDoc = _firestore.doc(FirestorePaths.chatThread(userId));
     if (!(await threadDoc.get()).exists) {
       await threadDoc.set({
         'createdAt': FieldValue.serverTimestamp(),
         'title': 'Advisor AI',
+        'type': 'advisor',
       });
-    }
-    final messagesCollection = threadDoc.collection('messages');
-    final hasMessages = await messagesCollection.limit(1).get();
-    if (hasMessages.docs.isEmpty) {
-      for (final message in sampleChatMessages) {
-        await messagesCollection.add(message);
-      }
     }
   }
 
-  Future<void> _syncCollection(
-    CollectionReference<Map<String, dynamic>> collection,
-    List<Map<String, dynamic>> samples,
-  ) async {
-    final idsToKeep = samples.map((entry) => entry['id'] as String).toSet();
-    final existing = await collection.get();
-    final batch = _firestore.batch();
-    for (final doc in existing.docs) {
-      if (!idsToKeep.contains(doc.id)) {
-        batch.delete(doc.reference);
-      }
-    }
-    for (final entry in samples) {
-      final id = entry['id'] as String;
-      batch.set(
-        collection.doc(id),
-        entry,
-        SetOptions(merge: true),
-      );
-    }
-    await batch.commit();
+  Future<void> _ensureAstrologicalEvents() async {
+    // Astrological events should be generated from real astronomical data
+    // or fetched from external APIs, not seeded with sample data
+    // Events will be created dynamically when needed
+    print('ℹ️ Astrological events will be generated dynamically from real astronomical data.');
   }
 }
 

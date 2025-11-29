@@ -14,25 +14,63 @@ class MatchProfileModel extends MatchProfile {
     required super.category,
     required super.bio,
     required super.avatarUrl,
+    super.ascendantSign,
+    super.userId,
+    super.distance,
   });
 
   factory MatchProfileModel.fromDoc(
-    DocumentSnapshot<Map<String, dynamic>> doc,
-  ) {
+    DocumentSnapshot<Map<String, dynamic>> doc, {
+    double? distance,
+  }) {
     final data = doc.data() ?? {};
     return MatchProfileModel(
       id: doc.id,
-      name: data['name'] as String? ?? '',
-      pronouns: data['pronouns'] as String? ?? '',
-      location: data['location'] as String? ?? '',
-      sunSign: data['sunSign'] as String? ?? '',
-      moonSign: data['moonSign'] as String? ?? '',
+      name: data['displayName'] as String? ?? data['name'] as String? ?? 'User',
+      pronouns: data['pronouns'] as String? ?? 'They/Them',
+      location: data['birthPlace'] as String? ?? 
+                data['location'] as String? ?? 
+                'Unknown',
+      sunSign: data['sunSign'] as String? ?? 'Unknown',
+      moonSign: data['moonSign'] as String? ?? 'Unknown',
+      ascendantSign: data['ascendantSign'] as String?,
       tags: (data['tags'] as List<dynamic>? ?? [])
           .map((e) => e.toString())
           .toList(),
-      category: data['category'] as String? ?? 'friendship',
-      bio: data['bio'] as String? ?? '',
-      avatarUrl: data['avatarUrl'] as String? ?? '',
+      category: 'friendship', // All nearby users are friendship
+      bio: data['bio'] as String? ?? 
+           'Astrology enthusiast • ${data['sunSign'] ?? 'Unknown'} Sun, ${data['moonSign'] ?? 'Unknown'} Moon',
+      avatarUrl: data['avatarUrl'] as String? ?? 'assets/images/app/logo.png',
+      userId: doc.id, // Use Firebase user ID
+      distance: distance,
+    );
+  }
+
+  /// Create from user data map (for nearby users)
+  factory MatchProfileModel.fromUserData({
+    required String userId,
+    required Map<String, dynamic> data,
+    double? distance,
+  }) {
+    return MatchProfileModel(
+      id: userId,
+      name: data['displayName'] as String? ?? data['name'] as String? ?? 'User',
+      pronouns: data['pronouns'] as String? ?? 'They/Them',
+      location: data['birthPlace'] as String? ?? 
+                data['location'] as String? ?? 
+                'Unknown',
+      sunSign: data['sunSign'] as String? ?? 'Unknown',
+      moonSign: data['moonSign'] as String? ?? 'Unknown',
+      ascendantSign: data['ascendantSign'] as String?,
+      tags: (data['tags'] as List<dynamic>? ?? [])
+          .map((e) => e.toString())
+          .toList(),
+      category: 'friendship',
+      bio: data['bio'] as String? ?? 
+           'Astrology enthusiast • ${data['sunSign'] ?? 'Unknown'} Sun, ${data['moonSign'] ?? 'Unknown'} Moon',
+      avatarUrl: data['avatarUrl'] as String? ?? 'assets/images/app/logo.png',
+      userId: userId,
+      distance: distance,
     );
   }
 }

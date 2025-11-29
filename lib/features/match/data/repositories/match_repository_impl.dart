@@ -9,7 +9,13 @@ class MatchRepositoryImpl implements MatchRepository {
 
   @override
   Future<Map<String, List<MatchProfile>>> fetchMatchSections() {
-    return _remoteDataSource.fetchMatchSections();
+    // Legacy method - now returns empty as we use real users
+    return Future.value(<String, List<MatchProfile>>{});
+  }
+
+  @override
+  Future<List<MatchProfile>> fetchNearbyUsers({double maxDistanceKm = 50.0}) {
+    return _remoteDataSource.fetchNearbyUsers(maxDistanceKm: maxDistanceKm);
   }
 }
 

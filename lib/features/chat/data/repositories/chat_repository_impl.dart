@@ -15,6 +15,7 @@ class ChatRepositoryImpl implements ChatRepository {
 
   @override
   Future<void> sendMessage(String threadId, String message) async {
+    // Only save user message - AI response will be handled by ChatConsultationService
     final userModel = ChatMessageModel(
       id: '',
       sender: 'user',
@@ -22,26 +23,23 @@ class ChatRepositoryImpl implements ChatRepository {
       createdAt: DateTime.now(),
     );
     await _remoteDataSource.sendMessage(threadId, userModel);
+    // Note: AI response is handled separately by ChatConsultationService
+    // to avoid duplicate responses
+  }
 
-    final aiResponse = _composeAiResponse(message);
+  @override
+  Future<void> sendAdvisorMessage(String threadId, String message) async {
+    // threadId should be the userId (each user has their own chat thread)
     final aiModel = ChatMessageModel(
       id: '',
       sender: 'advisor',
-      text: aiResponse,
+      text: message,
       createdAt: DateTime.now(),
     );
     await _remoteDataSource.sendMessage(threadId, aiModel);
   }
 
-  String _composeAiResponse(String prompt) {
-    final lower = prompt.toLowerCase();
-    if (lower.contains('career')) {
-      return 'Mars in Sagittarius highlights bold moves at work. List one courageous step you can take today and I will help you refine it.';
-    }
-    if (lower.contains('love') || lower.contains('relationship')) {
-      return 'Venus encourages vulnerability. Share gratitude with someone close and notice how the energy shifts.';
-    }
-    return 'Take a deep breath. Let me know whether you want insights about health, finance, or relationships next.';
-  }
+  // Removed _composeAiResponse - AI responses are now handled by ChatConsultationService
+  // to avoid duplicate responses
 }
 

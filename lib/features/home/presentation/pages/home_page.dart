@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/constants/app_colors.dart';
+import '../../../../core/services/premium_service.dart';
 import '../../../../core/utils/current_user.dart';
 import '../../../../core/widgets/app_background.dart';
 import '../../../../core/widgets/app_safe_image.dart';
@@ -26,6 +27,7 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   late final HomeRepositoryImpl _repository;
   late Future<HomeContent> _contentFuture;
+  DateTime _selectedDate = DateTime.now();
 
   @override
   void initState() {
@@ -33,7 +35,37 @@ class _HomePageState extends State<HomePage> {
     _repository = HomeRepositoryImpl(
       HomeRemoteDataSource(FirebaseFirestore.instance),
     );
-    _contentFuture = _repository.fetchHomeContent(currentUserId);
+    _loadContent();
+  }
+
+  Future<void> _loadContent() async {
+    try {
+      final userId = currentUserId; // This will throw if no user
+      _contentFuture = _repository.fetchHomeContent(userId, date: _selectedDate);
+    } catch (e) {
+      // If no user, navigate to login
+      if (mounted) {
+        Navigator.of(context).pushReplacementNamed('/auth/login');
+      }
+    }
+  }
+
+
+  void _onDateSelected(DateTime date) {
+    setState(() {
+      _selectedDate = date;
+      // Fetch content for selected date
+      // Data will be calculated automatically if not exists
+      try {
+        final userId = currentUserId;
+        _contentFuture = _repository.fetchHomeContent(userId, date: date);
+      } catch (e) {
+        // If no user, navigate to login
+        if (mounted) {
+          Navigator.of(context).pushReplacementNamed('/auth/login');
+        }
+      }
+    });
   }
 
   @override
@@ -59,10 +91,17 @@ class _HomePageState extends State<HomePage> {
                       const SizedBox(height: 12),
                       ElevatedButton(
                         onPressed: () {
-                          setState(() {
-                            _contentFuture =
-                                _repository.fetchHomeContent(currentUserId);
-                          });
+                          try {
+                            final userId = currentUserId;
+                            setState(() {
+                              _contentFuture = _repository.fetchHomeContent(userId);
+                            });
+                          } catch (e) {
+                            // If no user, navigate to login
+                            if (mounted) {
+                              Navigator.of(context).pushReplacementNamed('/auth/login');
+                            }
+                          }
                         },
                         child: const Text('Retry'),
                       ),
@@ -70,7 +109,11 @@ class _HomePageState extends State<HomePage> {
                   ),
                 );
               }
-              return _HomeContentView(content: snapshot.data!);
+              return _HomeContentView(
+                content: snapshot.data!,
+                selectedDate: _selectedDate,
+                onDateSelected: _onDateSelected,
+              );
             },
           ),
         ),
@@ -80,9 +123,15 @@ class _HomePageState extends State<HomePage> {
 }
 
 class _HomeContentView extends StatelessWidget {
-  const _HomeContentView({required this.content});
+  const _HomeContentView({
+    required this.content,
+    required this.selectedDate,
+    required this.onDateSelected,
+  });
 
   final HomeContent content;
+  final DateTime selectedDate;
+  final ValueChanged<DateTime> onDateSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -93,7 +142,10 @@ class _HomeContentView extends StatelessWidget {
             children: [
               _UserHeader(user: content.user),
               const SizedBox(height: 8),
-              const _WeekDatePicker(),
+              _WeekDatePicker(
+                selectedDate: selectedDate,
+                onDateSelected: onDateSelected,
+              ),
               const SizedBox(height: 16),
             ],
           ),
@@ -105,7 +157,7 @@ class _HomeContentView extends StatelessWidget {
               const SizedBox(height: 16),
               _PlanetsTodaySection(planets: content.planets),
               const SizedBox(height: 24),
-              const _PremiumCard(),
+              _PremiumCard(userId: content.user.id),
               const SizedBox(height: 32),
               _YouTodaySection(sections: content.sections),
               const SizedBox(height: 24),
@@ -141,31 +193,38 @@ class _UserHeader extends StatelessWidget {
         ),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // Avatar + Name
-          AppAvatar(
-            imageUrl: user.avatarUrl,
-            size: 24,
-            borderColor: Colors.white,
-          ),
-          const SizedBox(width: 4),
-          Text(
-            user.displayName,
-            style: const TextStyle(
-              fontFamily: 'Literata',
-              fontSize: 18,
-              fontWeight: FontWeight.w500,
-              color: Colors.white,
-            ),
-          ),
-          const Spacer(),
-          // Planets & Signs
+          // Left: Avatar + Name (sát bên trái)
           Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AppAvatar(
+                imageUrl: user.avatarUrl,
+                size: 48,
+                borderColor: Colors.white,
+              ),
+              const SizedBox(width: 12),
+              Text(
+                user.displayName,
+                style: const TextStyle(
+                  fontFamily: 'Literata',
+                  fontSize: 18,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.white,
+                ),
+              ),
+            ],
+          ),
+          // Right: Planets & Signs (sát bên phải, cách đều nhau)
+          Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
               _PlanetSign(icon: Icons.wb_sunny_outlined, sign: user.sunSign),
-              const SizedBox(width: 8),
+              const SizedBox(width: 16),
               _PlanetSign(icon: Icons.nightlight_outlined, sign: user.moonSign),
-              const SizedBox(width: 8),
+              const SizedBox(width: 16),
               _PlanetSign(icon: Icons.person_outline, sign: user.ascendantSign),
             ],
           ),
@@ -186,14 +245,14 @@ class _PlanetSign extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, color: Colors.white, size: 24),
-        const SizedBox(width: 2),
+        Icon(icon, color: Colors.white, size: 18),
+        const SizedBox(width: 4),
         Text(
           sign,
           style: const TextStyle(
             fontFamily: 'Literata',
             fontSize: 14,
-            fontWeight: FontWeight.w300,
+            fontWeight: FontWeight.w400,
             color: Colors.white,
           ),
         ),
@@ -203,21 +262,33 @@ class _PlanetSign extends StatelessWidget {
 }
 
 class _WeekDatePicker extends StatefulWidget {
-  const _WeekDatePicker();
+  const _WeekDatePicker({
+    required this.selectedDate,
+    required this.onDateSelected,
+  });
+
+  final DateTime selectedDate;
+  final ValueChanged<DateTime> onDateSelected;
 
   @override
   State<_WeekDatePicker> createState() => _WeekDatePickerState();
 }
 
 class _WeekDatePickerState extends State<_WeekDatePicker> {
-  late DateTime _selectedDate;
   late List<DateTime> _weekDays;
 
   @override
   void initState() {
     super.initState();
-    _selectedDate = DateTime.now();
-    _weekDays = _getWeekDays(_selectedDate);
+    _weekDays = _getWeekDays(widget.selectedDate);
+  }
+
+  @override
+  void didUpdateWidget(_WeekDatePicker oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.selectedDate != widget.selectedDate) {
+      _weekDays = _getWeekDays(widget.selectedDate);
+    }
   }
 
   List<DateTime> _getWeekDays(DateTime date) {
@@ -246,10 +317,10 @@ class _WeekDatePickerState extends State<_WeekDatePicker> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: _weekDays.map((day) {
-              final isSelected = day.day == _selectedDate.day &&
-                  day.month == _selectedDate.month;
+              final isSelected = day.day == widget.selectedDate.day &&
+                  day.month == widget.selectedDate.month;
               return GestureDetector(
-                onTap: () => setState(() => _selectedDate = day),
+                onTap: () => widget.onDateSelected(day),
                 child: Container(
                   width: 32,
                   height: 32,
@@ -277,10 +348,10 @@ class _WeekDatePickerState extends State<_WeekDatePicker> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: _weekDays.map((day) {
-              final isSelected = day.day == _selectedDate.day &&
-                  day.month == _selectedDate.month;
+              final isSelected = day.day == widget.selectedDate.day &&
+                  day.month == widget.selectedDate.month;
               return GestureDetector(
-                onTap: () => setState(() => _selectedDate = day),
+                onTap: () => widget.onDateSelected(day),
                 child: Container(
                   width: 32,
                   height: 32,
@@ -307,51 +378,6 @@ class _WeekDatePickerState extends State<_WeekDatePicker> {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _PlanetSignatureRow extends StatelessWidget {
-  const _PlanetSignatureRow({required this.user});
-
-  final UserProfile user;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final planets = [
-      ('Sun', user.sunSign),
-      ('Moon', user.moonSign),
-      ('AC', user.ascendantSign),
-    ];
-    return Row(
-      children: planets
-          .map(
-            (entry) => Expanded(
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 6),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
-                decoration: BoxDecoration(
-                  color: AppColors.surfaceSecondary,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: AppColors.border),
-                ),
-                child: Column(
-                  children: [
-                    Text(entry.$1, style: theme.textTheme.bodyMedium),
-                    const SizedBox(height: 4),
-                    Text(
-                      entry.$2,
-                      style: theme.textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w600),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          )
-          .toList(),
     );
   }
 }
@@ -568,58 +594,120 @@ class _TipCard extends StatelessWidget {
   }
 }
 
-class _PremiumCard extends StatelessWidget {
-  const _PremiumCard();
+class _PremiumCard extends StatefulWidget {
+  const _PremiumCard({required this.userId});
+
+  final String userId;
+
+  @override
+  State<_PremiumCard> createState() => _PremiumCardState();
+}
+
+class _PremiumCardState extends State<_PremiumCard> {
+  bool _isPremium = false;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkPremiumStatus();
+  }
+
+  Future<void> _checkPremiumStatus() async {
+    final premiumService = PremiumService.instance;
+    final isPremium = await premiumService.isPremium(widget.userId);
+    if (mounted) {
+      setState(() {
+        _isPremium = isPremium;
+        _loading = false;
+      });
+    }
+  }
+
+  void _handlePremiumTap() {
+    // Show premium upgrade dialog or navigate to premium page
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Upgrade to Premium'),
+        content: const Text('Unlock all premium features!'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              // In production, integrate with payment service
+            },
+            child: const Text('Upgrade'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 160,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(28),
-        gradient: const LinearGradient(
-          colors: [Color(0xFF422D8E), Color(0xFFBCA8F4)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+    if (_loading) {
+      return const SizedBox(height: 160);
+    }
+
+    if (_isPremium) {
+      return const SizedBox.shrink(); // Hide if already premium
+    }
+
+    return GestureDetector(
+      onTap: _handlePremiumTap,
+      child: Container(
+        height: 160,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(28),
+          gradient: const LinearGradient(
+            colors: [Color(0xFF422D8E), Color(0xFFBCA8F4)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
         ),
-      ),
-      padding: const EdgeInsets.all(20),
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              'ADVISOR',
-              style: TextStyle(
-                fontFamily: 'Literata',
-                fontSize: 12,
-                fontWeight: FontWeight.w400,
-                color: AppColors.surfacePrimary,
-                letterSpacing: 0.5,
+        padding: const EdgeInsets.all(20),
+        child: Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                'ADVISOR',
+                style: TextStyle(
+                  fontFamily: 'Literata',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w400,
+                  color: AppColors.surfacePrimary,
+                  letterSpacing: 0.5,
+                ),
               ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Try Premium',
-              style: TextStyle(
-                fontFamily: 'Literata',
-                fontSize: 24,
-                fontWeight: FontWeight.w500,
-                color: AppColors.surfacePrimary,
+              const SizedBox(height: 4),
+              Text(
+                'Try Premium',
+                style: TextStyle(
+                  fontFamily: 'Literata',
+                  fontSize: 24,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.surfacePrimary,
+                ),
               ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '-30% DISCOUNT',
-              style: TextStyle(
-                fontFamily: 'Literata',
-                fontSize: 14,
-                fontWeight: FontWeight.w400,
-                color: AppColors.surfacePrimary,
-                letterSpacing: 0.5,
+              const SizedBox(height: 4),
+              Text(
+                '-30% DISCOUNT',
+                style: TextStyle(
+                  fontFamily: 'Literata',
+                  fontSize: 14,
+                  fontWeight: FontWeight.w400,
+                  color: AppColors.surfacePrimary,
+                  letterSpacing: 0.5,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

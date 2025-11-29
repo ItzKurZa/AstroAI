@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/widgets/app_background.dart';
@@ -16,10 +17,21 @@ class _SplashPageState extends State<SplashPage> {
   @override
   void initState() {
     super.initState();
-    Future.delayed(const Duration(seconds: 1), () {
-      if (!mounted) return;
+    _checkAuthAndNavigate();
+  }
+
+  Future<void> _checkAuthAndNavigate() async {
+    await Future.delayed(const Duration(seconds: 1));
+    if (!mounted) return;
+    
+    final user = FirebaseAuth.instance.currentUser;
+    if (user != null) {
+      // User is logged in, go to app
+      Navigator.of(context).pushReplacementNamed('/app');
+    } else {
+      // No user logged in, go to onboarding/login
       Navigator.of(context).pushReplacementNamed('/onboarding');
-    });
+    }
   }
 
   @override

@@ -1,13 +1,87 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
 
 import '../../../../core/constants/app_colors.dart';
+import '../../../../core/utils/current_user.dart';
 import '../../../../core/widgets/app_background.dart';
+import '../../../chat/presentation/pages/chat_page.dart';
+import '../../data/datasources/astrological_event_remote_data_source.dart';
+import '../../domain/entities/astrological_event.dart';
 
-class HoroscopePage extends StatelessWidget {
+class HoroscopePage extends StatefulWidget {
   static const routeName = '/horoscope';
 
   const HoroscopePage({super.key});
+
+  @override
+  State<HoroscopePage> createState() => _HoroscopePageState();
+}
+
+class _HoroscopePageState extends State<HoroscopePage> {
+  late final AstrologicalEventRemoteDataSource _dataSource;
+  List<AstrologicalEvent> _events = [];
+  int _currentIndex = 0;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _dataSource = AstrologicalEventRemoteDataSource(FirebaseFirestore.instance);
+    _loadEvents();
+  }
+
+  Future<void> _loadEvents() async {
+    try {
+      // Check if user is logged in (will throw if not)
+      currentUserId; // This will throw if no user
+      
+      final events = await _dataSource.fetchCurrentEvents();
+      if (mounted) {
+        setState(() {
+          _events = events;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Error loading astrological events: $e');
+      // If no user, navigate to login
+      if (mounted && e.toString().contains('No user logged in')) {
+        Navigator.of(context).pushReplacementNamed('/auth/login');
+        return;
+      }
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  void _onGoDeeper() {
+    if (_events.isEmpty) return;
+    
+    // Navigate to chat page - user can ask AI about this event
+    // The AI will have access to user's birth chart and can provide personalized insights
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => const ChatPage(),
+      ),
+    );
+  }
+
+  void _onSwipeLeft() {
+    if (_currentIndex < _events.length - 1) {
+      setState(() => _currentIndex++);
+    }
+  }
+
+  void _onSwipeRight() {
+    if (_currentIndex > 0) {
+      setState(() => _currentIndex--);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -21,68 +95,74 @@ class HoroscopePage extends StatelessWidget {
             children: [
               // Header with back button
               _buildHeader(context),
-              // Progress indicator
-              const _HoroscopeToggle(),
+              // Progress indicator (Stories style)
+              _ProgressIndicator(
+                currentIndex: _currentIndex,
+                totalCount: _events.isEmpty ? 1 : _events.length,
+              ),
               const SizedBox(height: 24),
-              // Logo and text
+              // Logo and "UPDATE From Adviser" section
               const _LogoSection(),
               // Content
               Expanded(
-                child: SingleChildScrollView(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Column(
-                      children: [
-                        const SizedBox(height: 16),
-                        // Title
-                        Text(
-                          'Mercury Retrograde',
-                          style: GoogleFonts.literata(
-                            fontSize: 24,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.white,
-                            letterSpacing: 0.048,
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _events.isEmpty
+                        ? _EmptyState()
+                        : GestureDetector(
+                            onHorizontalDragEnd: (details) {
+                              if (details.primaryVelocity! > 0) {
+                                _onSwipeRight();
+                              } else if (details.primaryVelocity! < 0) {
+                                _onSwipeLeft();
+                              }
+                            },
+                            child: SingleChildScrollView(
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 16),
+                                child: Column(
+                                  children: [
+                                    const SizedBox(height: 16),
+                                    // Event Title
+                                    Text(
+                                      _events[_currentIndex].title,
+                                      style: GoogleFonts.literata(
+                                        fontSize: 24,
+                                        fontWeight: FontWeight.w500,
+                                        color: Colors.white,
+                                        letterSpacing: 0.048,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                    const SizedBox(height: 4),
+                                    // Event Date
+                                    Text(
+                                      _formatEventDate(_events[_currentIndex]),
+                                      style: GoogleFonts.literata(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w400,
+                                        color: AppColors.primary,
+                                      ),
+                                      textAlign: TextAlign.center,
+                                    ),
+                                    const SizedBox(height: 24),
+                                    // Astrological Explanation Block
+                                    _InfoCard(
+                                      description: _events[_currentIndex].description,
+                                      impact: _events[_currentIndex].impact,
+                                    ),
+                                    const SizedBox(height: 24),
+                                    // Go Deeper Button
+                                    _PrimaryButton(
+                                      label: 'Go Deeper',
+                                      onTap: _onGoDeeper,
+                                    ),
+                                    const SizedBox(height: 100),
+                                  ],
+                                ),
+                              ),
+                            ),
                           ),
-                          textAlign: TextAlign.center,
-                        ),
-                        const SizedBox(height: 4),
-                        // Date
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              'Dec 13,',
-                              style: GoogleFonts.literata(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w400,
-                                color: Colors.white,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              '2023',
-                              style: GoogleFonts.literata(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w400,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 24),
-                        // Info Card
-                        const _InfoCard(),
-                        const SizedBox(height: 24),
-                        // Go Deeper Button
-                        _PrimaryButton(
-                          label: 'Go Deeper',
-                          onTap: () {},
-                        ),
-                        const SizedBox(height: 100),
-                      ],
-                    ),
-                  ),
-                ),
               ),
             ],
           ),
@@ -112,6 +192,58 @@ class HoroscopePage extends StatelessWidget {
             onTap: () => Navigator.of(context).pop(),
             child: const Icon(Icons.arrow_back, color: Colors.white, size: 24),
           ),
+        ],
+      ),
+    );
+  }
+
+  String _formatEventDate(AstrologicalEvent event) {
+    final startDate = DateFormat('MMM d, yyyy').format(event.startDate);
+    if (event.endDate != null) {
+      final endDate = DateFormat('MMM d, yyyy').format(event.endDate!);
+      return '$startDate - $endDate';
+    }
+    return startDate;
+  }
+}
+
+class _ProgressIndicator extends StatelessWidget {
+  const _ProgressIndicator({
+    required this.currentIndex,
+    required this.totalCount,
+  });
+
+  final int currentIndex;
+  final int totalCount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+      child: Row(
+        children: [
+          for (int i = 0; i < totalCount; i++) ...[
+            Expanded(
+              child: Container(
+                height: 4,
+                decoration: BoxDecoration(
+                  color: AppColors.primary.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(100),
+                ),
+                child: FractionallySizedBox(
+                  alignment: Alignment.centerLeft,
+                  widthFactor: i == currentIndex ? 1.0 : 0.0,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: AppColors.primary,
+                      borderRadius: BorderRadius.circular(100),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            if (i < totalCount - 1) const SizedBox(width: 8),
+          ],
         ],
       ),
     );
@@ -161,11 +293,81 @@ class _LogoSection extends StatelessWidget {
                 style: GoogleFonts.literata(
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
-                  color: Colors.white,
+                  color: AppColors.primary,
                 ),
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoCard extends StatelessWidget {
+  const _InfoCard({
+    required this.description,
+    required this.impact,
+  });
+
+  final String description;
+  final String impact;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.2),
+        border: Border.all(color: Colors.white, width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Description (Astrological Explanation Block)
+          Text(
+            description,
+            style: GoogleFonts.literata(
+              fontSize: 16,
+              fontWeight: FontWeight.w400,
+              color: Colors.white,
+              height: 1.75,
+            ),
+          ),
+          if (impact.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            // Impact section
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppColors.primary.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.info_outline,
+                    color: AppColors.primary,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      impact,
+                      style: GoogleFonts.literata(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w400,
+                        color: Colors.white,
+                        height: 1.5,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -204,77 +406,43 @@ class _PrimaryButton extends StatelessWidget {
   }
 }
 
-class _InfoCard extends StatelessWidget {
-  const _InfoCard();
-
+class _EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.2),
-        border: Border.all(color: Colors.white, width: 1),
-      ),
-      child: Text(
-        'Starting on December 13, 2023, Mercury will begin to "back away", returning to its normal trajectory only in 2024. In December 2023, Mercury will be retrograde for 18 days. This period will end on January 2, 2024. During this time, the planet will first be in the sign of Capricorn, and then in the sign of Aquarius.',
-        style: GoogleFonts.literata(
-          fontSize: 16,
-          fontWeight: FontWeight.w400,
-          color: Colors.white,
-          height: 1.75,
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.star_outline,
+              size: 64,
+              color: Colors.white.withOpacity(0.5),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'No astrological events at this time',
+              style: GoogleFonts.literata(
+                fontSize: 18,
+                fontWeight: FontWeight.w400,
+                color: Colors.white.withOpacity(0.7),
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Check back later for updates',
+              style: GoogleFonts.literata(
+                fontSize: 14,
+                fontWeight: FontWeight.w400,
+                color: Colors.white.withOpacity(0.5),
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
         ),
       ),
     );
   }
 }
-
-class _HoroscopeToggle extends StatelessWidget {
-  const _HoroscopeToggle();
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-      child: Row(
-        children: [
-          // First bar - 75% filled
-          Expanded(
-            child: Container(
-              height: 4,
-              decoration: BoxDecoration(
-                color: AppColors.primary.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(100),
-              ),
-              child: FractionallySizedBox(
-                alignment: Alignment.centerLeft,
-                widthFactor: 0.75,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: AppColors.primary,
-                    borderRadius: BorderRadius.circular(100),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          // Other bars - empty
-          for (int i = 0; i < 4; i++) ...[
-            Expanded(
-              child: Container(
-                height: 4,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(100),
-                ),
-              ),
-            ),
-            if (i < 3) const SizedBox(width: 8),
-          ],
-        ],
-      ),
-    );
-  }
-}
-

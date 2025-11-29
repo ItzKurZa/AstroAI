@@ -22,7 +22,7 @@ class CharacteristicModel extends Characteristic {
       house: data['house'] as String? ?? '',
       description: data['description'] as String? ?? '',
       imageUrl: data['imageUrl'] as String? ??
-          'assets/images/app/planet-icons/Sun.png',
+          'assets/images/app/planets/Sun.png',
       order: (data['order'] as num?)?.toInt() ?? 0,
     );
   }

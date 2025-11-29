@@ -9,8 +9,8 @@ class HomeRepositoryImpl implements HomeRepository {
   final HomeRemoteDataSource _remoteDataSource;
 
   @override
-  Future<HomeContent> fetchHomeContent(String userId) {
-    return _remoteDataSource.fetchContent(userId);
+  Future<HomeContent> fetchHomeContent(String userId, {DateTime? date}) {
+    return _remoteDataSource.fetchContent(userId, date: date);
   }
 
   @override

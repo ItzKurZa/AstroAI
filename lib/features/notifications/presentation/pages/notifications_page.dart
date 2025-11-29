@@ -52,17 +52,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
       );
     }
     final prefs = _prefs!;
-    final topPadding = MediaQuery.of(context).padding.top;
     return Scaffold(
       body: AppBackground(
-        padding: EdgeInsets.only(
-          top: topPadding + 24,
-          left: 24,
-          right: 24,
-          bottom: 24,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
         child: SafeArea(
-          top: false,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

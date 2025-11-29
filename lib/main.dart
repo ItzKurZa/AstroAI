@@ -2,10 +2,11 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'core/firebase/firestore_seeder.dart';
-import 'core/firebase/sample_data.dart';
+import 'core/services/gemini_service.dart';
 import 'core/theme/app_theme.dart';
 import 'core/widgets/app_bottom_nav.dart';
 import 'features/auth/presentation/pages/login_page.dart';
@@ -26,13 +27,21 @@ Future<void> main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-  final user = FirebaseAuth.instance.currentUser;
-  if (user == null) {
-    await FirebaseAuth.instance.signInAnonymously();
+  // Initialize Gemini Service
+  try {
+    GeminiService.instance.initialize();
+    print('✅ Gemini Service initialized successfully');
+  } catch (e) {
+    print('⚠️ Failed to initialize Gemini Service: $e');
   }
-  final currentUid = FirebaseAuth.instance.currentUser?.uid ?? demoUserId;
+
+  // Seed general content (not user-specific)
   final seeder = FirestoreSeeder(FirebaseFirestore.instance);
-  await seeder.ensureInitialContent(currentUid);
+  await seeder.ensureGeneralContent();
+  
+  // Note: User must login/signup to access the app
+  // No anonymous sign-in - all users must register with real data
+  
   runApp(const AdvisorApp());
 }
 
@@ -78,12 +87,32 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   int _currentIndex = 0;
 
+  // Pages corresponding to navigation items: Home, AstroAI (Chat), Horoscope, Profile
   final _pages = const [
     HomePage(),
-    MatchPage(),
+    ChatPage(), // Changed from MatchPage to ChatPage for AstroAI
     HoroscopePage(),
     ProfilePage(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    // Check authentication when AppShell is created
+    SchedulerBinding.instance.addPostFrameCallback((_) {
+      _checkAuth();
+    });
+  }
+
+  Future<void> _checkAuth() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      // No user logged in, navigate to login
+      if (mounted) {
+        Navigator.of(context).pushReplacementNamed(LoginPage.routeName);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -94,7 +123,7 @@ class _AppShellState extends State<AppShell> {
         selectedIcon: 'assets/images/app/navigation/Home-pressed.png',
       ),
       AppBottomNavItem(
-        label: 'Match',
+        label: 'AstroAI',
         defaultIcon: 'assets/images/app/navigation/Chat-default.png',
         selectedIcon: 'assets/images/app/navigation/Chat-pressed.png',
       ),

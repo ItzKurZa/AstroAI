@@ -10,6 +10,9 @@ class MatchProfile {
     required this.category,
     required this.bio,
     required this.avatarUrl,
+    this.ascendantSign,
+    this.userId,
+    this.distance,
   });
 
   final String id;
@@ -18,9 +21,12 @@ class MatchProfile {
   final String location;
   final String sunSign;
   final String moonSign;
+  final String? ascendantSign;
   final List<String> tags;
   final String category;
   final String bio;
   final String avatarUrl;
+  final String? userId; // Firebase user ID for chat
+  final double? distance; // Distance in km
 }
 
