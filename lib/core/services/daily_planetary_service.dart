@@ -75,6 +75,9 @@ class DailyPlanetaryService {
   }
 
   /// Calculate and save for multiple dates (useful for pre-calculating)
+  /// 
+  /// IMPORTANT: This method checks Firebase cache first to avoid spam API requests.
+  /// Only calls API for dates that don't exist in Firebase.
   Future<void> calculateAndSaveDateRange({
     required DateTime startDate,
     required DateTime endDate,
@@ -87,19 +90,57 @@ class DailyPlanetaryService {
       current = current.add(const Duration(days: 1));
     }
 
+    // First, check which dates already exist in Firebase (batch check)
+    final existingDates = <DateTime>[];
+    final missingDates = <DateTime>[];
+
     for (final date in dates) {
-      await calculateAndSaveDailyPlanets(date: date);
+      final doc = _firestore.doc(FirestorePaths.planetsTodayDoc(date));
+      final snapshot = await doc.get();
+      if (snapshot.exists) {
+        existingDates.add(date);
+      } else {
+        missingDates.add(date);
+      }
     }
+    
+    if (existingDates.isNotEmpty) {
+      print('✅ ${existingDates.length} dates already cached in Firebase, skipping API calls');
+    }
+    
+    if (missingDates.isEmpty) {
+      print('✅ All dates already cached, no API calls needed');
+      return;
+    }
+    
+    print('📡 Calculating ${missingDates.length} missing dates (will cache to Firebase)...');
+    
+    // Process missing dates with a small delay between each to avoid rate limiting
+    for (int i = 0; i < missingDates.length; i++) {
+      final date = missingDates[i];
+      await calculateAndSaveDailyPlanets(date: date);
+      
+      // Add small delay between API calls to avoid rate limiting (except for last one)
+      if (i < missingDates.length - 1) {
+        await Future.delayed(const Duration(milliseconds: 200));
+    }
+    }
+    
+    print('✅ Successfully cached ${missingDates.length} dates to Firebase');
   }
 
   /// Get planetary data for a date (calculates if not exists)
+  /// 
+  /// IMPORTANT: Always checks Firebase cache first to avoid unnecessary API calls.
+  /// Only calls API if data doesn't exist in Firebase.
   /// Also fixes old data that might have Pluto.png instead of Pluton.png
   Future<Map<String, dynamic>> getPlanetaryData(DateTime date) async {
     final doc = _firestore.doc(FirestorePaths.planetsTodayDoc(date));
     final snapshot = await doc.get();
 
     if (!snapshot.exists) {
-      // Calculate and save if not exists
+      // Data doesn't exist in Firebase - calculate and save (will cache to Firebase)
+      print('📡 Planetary data not found in Firebase for ${FirestorePaths.dateId(date)}, calculating and caching...');
       await calculateAndSaveDailyPlanets(date: date);
       // Get again after calculation
       final newSnapshot = await doc.get();

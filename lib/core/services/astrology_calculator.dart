@@ -38,7 +38,8 @@ class AstrologyCalculator {
         );
       }
     } catch (e) {
-      print('Error using API for birth chart: $e');
+      // Don't log - error already logged in FreeAstrologyApiService
+      // Fallback will be used automatically
     }
 
     // Fallback to simplified calculation

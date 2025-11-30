@@ -339,7 +339,7 @@ Greet the user warmly and offer astrological guidance.
         maxOutputTokens: 1024, // Increased for detailed responses when requested
       ),
     );
-    
+
     // Verify key is valid by checking it's not empty
     if (apiKey.isEmpty || apiKey.length < 20) {
       throw Exception('Invalid API key format');

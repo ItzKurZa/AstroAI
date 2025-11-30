@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../../../core/widgets/app_background.dart';
 import '../../../../core/widgets/app_safe_image.dart';
+import '../../../../core/services/auth_service.dart';
+import '../../../../core/services/astrology_sync_on_login.dart';
+import '../../../../core/firebase/firestore_seeder.dart';
 import '../widgets/onboarding_primitives.dart';
 
 class OnboardingPage extends StatefulWidget {
@@ -25,7 +29,9 @@ class _OnboardingPageState extends State<OnboardingPage> {
   }
 
   void _handlePageChanged(int index) {
+    if (mounted) {
     setState(() => _currentPage = index);
+    }
   }
 
   void _goToPage(int index) {
@@ -56,6 +62,70 @@ class _OnboardingPageState extends State<OnboardingPage> {
     _goToPage(_totalSlides - 1);
   }
 
+  Future<void> _handleGoogleSignUp(BuildContext context) async {
+    try {
+      // Show loading indicator
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => const Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+
+      // Sign in with Google
+      final authService = AuthService.instance;
+      final userCredential = await authService.signInWithGoogle();
+      
+      if (userCredential.user == null) {
+        if (mounted) {
+          Navigator.of(context).pop(); // Close loading
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to sign in with Google'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      final userId = userCredential.user!.uid;
+      
+      // Ensure user content is seeded
+      final seeder = FirestoreSeeder(FirebaseFirestore.instance);
+      await seeder.ensureUserContent(userId);
+      
+      // Sync astrology data for the user
+      try {
+        final syncService = AstrologySyncOnLogin.instance;
+        await syncService.syncAfterLogin();
+      } catch (e) {
+        print('⚠️ Error syncing astrology data: $e');
+        // Continue even if sync fails
+      }
+
+      // Close loading
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading
+        
+        // Navigate to main app
+        Navigator.of(context).pushReplacementNamed('/app');
+      }
+    } catch (e) {
+      print('❌ Google sign-in error: $e');
+      if (mounted) {
+        Navigator.of(context).pop(); // Close loading if still open
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -81,6 +151,8 @@ class _OnboardingPageState extends State<OnboardingPage> {
                 onArrowTap: () => _handleArrowTap(1),
                 onLogin: _navigateToLogin,
                 onSkip: _skipToFriends,
+                onSignUp: _navigateToSignUp,
+                onGoogleSignUp: () => _handleGoogleSignUp(context),
               ),
               _FeatureSlide(
                 activeIndex: _currentPage,
@@ -90,6 +162,8 @@ class _OnboardingPageState extends State<OnboardingPage> {
                 onArrowTap: () => _handleArrowTap(2),
                 onLogin: _navigateToLogin,
                 onSkip: _skipToFriends,
+                onSignUp: _navigateToSignUp,
+                onGoogleSignUp: () => _handleGoogleSignUp(context),
               ),
               _FeatureSlide(
                 activeIndex: _currentPage,
@@ -99,6 +173,8 @@ class _OnboardingPageState extends State<OnboardingPage> {
                 onArrowTap: () => _handleArrowTap(3),
                 onLogin: _navigateToLogin,
                 onSkip: _skipToFriends,
+                onSignUp: _navigateToSignUp,
+                onGoogleSignUp: () => _handleGoogleSignUp(context),
               ),
             ],
           ),
@@ -142,8 +218,6 @@ class _StartSlide extends StatelessWidget {
           _OutlineButton(label: 'Log In', onTap: onLogin),
           const SizedBox(height: 32),
           const _PolicyLinks(),
-          const SizedBox(height: 32),
-          const HomeIndicatorBar(),
         ],
       ),
     );
@@ -159,6 +233,8 @@ class _FeatureSlide extends StatelessWidget {
     required this.onArrowTap,
     required this.onLogin,
     required this.onSkip,
+    required this.onSignUp,
+    this.onGoogleSignUp,
   });
 
   final int activeIndex;
@@ -168,6 +244,8 @@ class _FeatureSlide extends StatelessWidget {
   final VoidCallback onArrowTap;
   final VoidCallback onLogin;
   final VoidCallback onSkip;
+  final VoidCallback onSignUp;
+  final VoidCallback? onGoogleSignUp;
 
   @override
   Widget build(BuildContext context) {
@@ -200,18 +278,17 @@ class _FeatureSlide extends StatelessWidget {
           const SizedBox(height: 32),
           Divider(color: Colors.white.withValues(alpha: 0.3), thickness: 1),
           const SizedBox(height: 24),
-          _PrimaryButton(label: 'Enter Your Number', onTap: onArrowTap),
+          _PrimaryButton(label: 'Enter Your Number', onTap: onSignUp),
           const SizedBox(height: 24),
           const _OrDivider(),
           const SizedBox(height: 24),
-          const _SocialButton(
+          _SocialButton(
             icon: Icons.g_mobiledata,
             label: 'Sign Up with Google',
+            onTap: onGoogleSignUp,
           ),
           const SizedBox(height: 16),
           const _SocialButton(icon: Icons.apple, label: 'Sign Up with Apple'),
-          const SizedBox(height: 32),
-          const HomeIndicatorBar(),
         ],
       ),
     );
@@ -485,10 +562,15 @@ class _OutlineButton extends StatelessWidget {
 }
 
 class _SocialButton extends StatelessWidget {
-  const _SocialButton({required this.icon, required this.label});
+  const _SocialButton({
+    required this.icon,
+    required this.label,
+    this.onTap,
+  });
 
   final IconData icon;
   final String label;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -502,7 +584,7 @@ class _SocialButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(18),
           ),
         ),
-        onPressed: () {},
+        onPressed: onTap,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [

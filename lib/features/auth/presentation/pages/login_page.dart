@@ -11,7 +11,6 @@ import '../../../../core/services/data_preloader_service.dart';
 import '../../../../core/services/astrology_sync_on_login.dart';
 import '../../../../core/firebase/firestore_seeder.dart';
 import '../../../../core/widgets/app_background.dart';
-import '../../../onboarding/presentation/widgets/onboarding_primitives.dart';
 
 class LoginPage extends StatefulWidget {
   static const routeName = '/auth/login';
@@ -212,10 +211,68 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   void _toggleLoginMethod() {
-    setState(() {
-      _loginUsingEmail = !_loginUsingEmail;
-      _emailController.clear();
-    });
+    if (mounted) {
+      setState(() {
+        _loginUsingEmail = !_loginUsingEmail;
+        _emailController.clear();
+      });
+    }
+  }
+
+  Future<void> _handleGoogleSignIn() async {
+    try {
+      if (mounted) {
+        setState(() => _isLoading = true);
+      }
+
+      // Sign in with Google
+      final authService = AuthService.instance;
+      final userCredential = await authService.signInWithGoogle();
+      
+      if (userCredential.user == null) {
+        if (mounted) {
+          setState(() {
+            _errorMessage = 'Failed to sign in with Google';
+            _isLoading = false;
+          });
+        }
+        return;
+      }
+
+      final userId = userCredential.user!.uid;
+      
+      // Sync astrology data for this user
+      try {
+        final syncService = AstrologySyncOnLogin.instance;
+        await syncService.syncAfterLogin();
+      } catch (e) {
+        print('⚠️ Error syncing astrology data on login: $e');
+        // Continue even if sync fails
+      }
+      
+      // Preload all data in background (non-blocking)
+      DataPreloaderService.instance.preloadAllData(userId).catchError((e) {
+        print('⚠️ Error preloading data: $e');
+      });
+
+      if (mounted) {
+        Navigator.of(context).pushReplacementNamed('/app');
+      }
+    } on Exception catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString().replaceFirst('Exception: ', '');
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Google sign-in failed. Please try again.';
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   @override
@@ -230,7 +287,16 @@ class _LoginPageState extends State<LoginPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-                _TopBar(onBack: () => Navigator.of(context).maybePop()),
+                _TopBar(
+                  onBack: () {
+                    // If we can pop, pop. Otherwise, navigate to onboarding
+                    if (Navigator.of(context).canPop()) {
+                      Navigator.of(context).pop();
+                    } else {
+                      Navigator.of(context).pushReplacementNamed('/onboarding');
+                    }
+                  },
+              ),
               const SizedBox(height: 24),
                 if (_errorMessage != null) ...[
                   _ErrorBanner(message: _errorMessage!),
@@ -289,11 +355,10 @@ class _LoginPageState extends State<LoginPage> {
                   ),
               ),
               const SizedBox(height: 24),
-              const _OrDivider(),
-                const SizedBox(height: 16),
-              const _SocialButton(
+              _SocialButton(
                 iconData: Icons.g_mobiledata,
                 label: 'Log In with Google',
+                onTap: _isLoading ? null : _handleGoogleSignIn,
               ),
                 const SizedBox(height: 12),
               const _SocialButton(
@@ -306,12 +371,10 @@ class _LoginPageState extends State<LoginPage> {
                   child: _ArrowButton(
                     onTap: _isLoading ? null : _handleLogin,
                     loading: _isLoading,
-                          ),
+                    ),
+                  ),
+                ],
               ),
-                const SizedBox(height: 32),
-                const Center(child: HomeIndicatorBar()),
-            ],
-            ),
           ),
         ),
       ),
@@ -831,12 +894,6 @@ class _SignUpFlowPageState extends State<SignUpFlowPage> {
                 bottom: 84,
                 child: _NextArrowButton(onTap: _handleNext),
               ),
-              const Positioned(
-                bottom: 12,
-                left: 0,
-                right: 0,
-                child: HomeIndicatorBar(),
-              ),
             ],
           ),
         ),
@@ -1134,7 +1191,7 @@ class _ArrowButton extends StatelessWidget {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(28),
           border: Border.all(color: Colors.white.withValues(alpha: 0.4), width: 2),
-        ),
+          ),
         child: Center(
           child: loading
               ? const SizedBox(
@@ -1166,19 +1223,10 @@ class _PhoneNumberField extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     const accentColor = Color(0xFF614B9F);
-    const dividerColor = Color(0xFFBCA8F4);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Container(
-          decoration: BoxDecoration(
-            border: Border.symmetric(
-              horizontal: BorderSide(
-                color: dividerColor.withValues(alpha: 0.9),
-                width: 1,
-              ),
-            ),
-          ),
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
@@ -1806,10 +1854,15 @@ class _LocationSearchSheetState extends State<_LocationSearchSheet> {
 }
 
 class _SocialButton extends StatelessWidget {
-  const _SocialButton({required this.label, this.iconData});
+  const _SocialButton({
+    required this.label,
+    this.iconData,
+    this.onTap,
+  });
 
   final IconData? iconData;
   final String label;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -1826,7 +1879,7 @@ class _SocialButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(18),
           ),
         ),
-        onPressed: () {},
+        onPressed: onTap,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
@@ -1842,25 +1895,4 @@ class _SocialButton extends StatelessWidget {
   }
 }
 
-class _OrDivider extends StatelessWidget {
-  const _OrDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Container(height: 1, color: Colors.white24),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Text('or', style: Theme.of(context).textTheme.bodyMedium),
-        ),
-        Expanded(
-          child: Container(height: 1, color: Colors.white24),
-        ),
-      ],
-    );
-  }
-}
 

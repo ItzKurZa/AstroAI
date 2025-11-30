@@ -24,12 +24,20 @@ class _HoroscopePageState extends State<HoroscopePage> {
   List<AstrologicalEvent> _events = [];
   int _currentIndex = 0;
   bool _isLoading = true;
+  late PageController _pageController;
 
   @override
   void initState() {
     super.initState();
     _dataSource = AstrologicalEventRemoteDataSource(FirebaseFirestore.instance);
+    _pageController = PageController();
     _loadEvents();
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadEvents() async {
@@ -38,11 +46,16 @@ class _HoroscopePageState extends State<HoroscopePage> {
       currentUserId; // This will throw if no user
       
       final events = await _dataSource.fetchCurrentEvents();
+      print('📊 HoroscopePage: Loaded ${events.length} events');
       if (mounted) {
         setState(() {
           _events = events;
           _isLoading = false;
         });
+        // Reset to first page if events changed
+        if (_events.isNotEmpty && _pageController.hasClients) {
+          _pageController.jumpToPage(0);
+        }
       }
     } catch (e) {
       print('Error loading astrological events: $e');
@@ -88,17 +101,12 @@ class _HoroscopePageState extends State<HoroscopePage> {
     );
   }
 
-  void _onSwipeLeft() {
-    if (_currentIndex < _events.length - 1) {
-      setState(() => _currentIndex++);
+  void _onPageChanged(int index) {
+    if (mounted) {
+      setState(() => _currentIndex = index);
     }
   }
 
-  void _onSwipeRight() {
-    if (_currentIndex > 0) {
-      setState(() => _currentIndex--);
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -126,23 +134,25 @@ class _HoroscopePageState extends State<HoroscopePage> {
                     ? const Center(child: CircularProgressIndicator())
                     : _events.isEmpty
                         ? _EmptyState()
-                        : GestureDetector(
-                            onHorizontalDragEnd: (details) {
-                              if (details.primaryVelocity! > 0) {
-                                _onSwipeRight();
-                              } else if (details.primaryVelocity! < 0) {
-                                _onSwipeLeft();
-                              }
-                            },
-                child: SingleChildScrollView(
+                        : Column(
+                            children: [
+                              // PageView for swiping between events
+                              Expanded(
+                                child: PageView.builder(
+                                  controller: _pageController,
+                                  onPageChanged: _onPageChanged,
+                                  itemCount: _events.length,
+                                  itemBuilder: (context, index) {
+                                    final event = _events[index];
+                                    return SingleChildScrollView(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Column(
                       children: [
                         const SizedBox(height: 16),
-                                    // Event Title
+                                            // Event Title
                         Text(
-                                      _events[_currentIndex].title,
+                                              event.title,
                           style: GoogleFonts.literata(
                             fontSize: 24,
                             fontWeight: FontWeight.w500,
@@ -152,33 +162,37 @@ class _HoroscopePageState extends State<HoroscopePage> {
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 4),
-                                    // Event Date
+                                            // Event Date
                             Text(
-                                      _formatEventDate(_events[_currentIndex]),
+                                              _formatEventDate(event),
                               style: GoogleFonts.literata(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w400,
-                                        color: AppColors.primary,
+                                                color: AppColors.primary,
                             ),
-                                      textAlign: TextAlign.center,
+                                              textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 24),
-                                    // Astrological Explanation Block
-                                    _InfoCard(
-                                      description: _events[_currentIndex].description,
-                                      impact: _events[_currentIndex].impact,
-                                    ),
+                                            // Astrological Explanation Block
+                                            _InfoCard(
+                                              description: event.description,
+                                              impact: event.impact,
+                                            ),
                         const SizedBox(height: 24),
                         // Go Deeper Button
                         _PrimaryButton(
                           label: 'Go Deeper',
-                                      onTap: _onGoDeeper,
+                                              onTap: _onGoDeeper,
                         ),
                         const SizedBox(height: 100),
                       ],
-                                ),
                     ),
                   ),
+                                    );
+                                  },
+                                ),
+                              ),
+                            ],
                 ),
               ),
             ],

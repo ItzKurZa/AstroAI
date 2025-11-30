@@ -40,68 +40,43 @@ class ProfileRemoteDataSource {
   }
 
   Future<List<CharacteristicModel>> fetchCharacteristics({String? userId}) async {
-    // If userId provided, fetch user-specific characteristics
-    if (userId != null) {
-      try {
-        // Try to fetch with orderBy first (if index exists)
-        final query = await _firestore
+    try {
+      QuerySnapshot<Map<String, dynamic>> querySnapshot;
+      
+      // If userId provided, fetch user-specific characteristics
+      if (userId != null) {
+        // Fetch without orderBy to avoid needing composite index
+        // We'll sort manually in code
+        querySnapshot = await _firestore
             .collection(FirestorePaths.characteristicsCollection())
             .where('userId', isEqualTo: userId)
-            .orderBy('order')
             .get();
-        
-        if (query.docs.isNotEmpty) {
-          return query.docs
-              .map((doc) => CharacteristicModel.fromDoc(doc))
-              .toList();
-        }
-      } catch (e) {
-        // If index doesn't exist, fetch without orderBy
-        print('⚠️ Index not found for characteristics query, fetching without orderBy: $e');
-        try {
-          final query = await _firestore
-              .collection(FirestorePaths.characteristicsCollection())
-              .where('userId', isEqualTo: userId)
-              .get();
-          
-          if (query.docs.isNotEmpty) {
-            // Sort manually by order field
-            final docs = query.docs.map((doc) => CharacteristicModel.fromDoc(doc)).toList();
-            docs.sort((a, b) {
-              // Assuming CharacteristicModel has an order field
-              // If not, just return unsorted list
-              return 0;
-            });
-            return docs;
-          }
-        } catch (e2) {
-          print('⚠️ Error fetching user-specific characteristics: $e2');
-        }
+      } else {
+        // Fetch all characteristics (no filter, no orderBy needed)
+        querySnapshot = await _firestore
+            .collection(FirestorePaths.characteristicsCollection())
+            .get();
       }
-    }
-    
-    // Fallback to general characteristics (or if no userId provided)
-    try {
-    final query = await _firestore
-        .collection(FirestorePaths.characteristicsCollection())
-        .orderBy('order')
-        .get();
-    return query.docs
-        .map(
-          (doc) => CharacteristicModel.fromDoc(doc),
-        )
-        .toList();
+      
+      if (querySnapshot.docs.isEmpty) {
+        return [];
+      }
+      
+      // Sort manually by order field (avoids needing Firestore index)
+      final docs = querySnapshot.docs.map((doc) {
+        final data = doc.data();
+        return MapEntry(
+          (data['order'] as num?)?.toInt() ?? 999,
+          CharacteristicModel.fromDoc(doc),
+        );
+      }).toList();
+      
+      docs.sort((a, b) => a.key.compareTo(b.key));
+      return docs.map((e) => e.value).toList();
     } catch (e) {
-      // If index doesn't exist, fetch without orderBy
-      print('⚠️ Index not found for general characteristics, fetching without orderBy: $e');
-      final query = await _firestore
-          .collection(FirestorePaths.characteristicsCollection())
-          .get();
-      return query.docs
-          .map(
-            (doc) => CharacteristicModel.fromDoc(doc),
-          )
-          .toList();
+      print('❌ Error fetching characteristics: $e');
+      // Return empty list instead of throwing to prevent profile page from failing
+      return [];
     }
   }
 

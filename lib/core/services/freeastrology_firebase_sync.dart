@@ -162,7 +162,12 @@ class FreeAstrologyFirebaseSync {
 
   /// Sync daily horoscope from API to Firebase
   /// 
-  /// Checks Firebase first - only calls API if data doesn't exist or is older than 1 day
+  /// IMPORTANT: Always checks Firebase cache first to avoid spam API requests.
+  /// Only calls API if:
+  /// 1. Data doesn't exist in Firebase, OR
+  /// 2. Data is older than 1 day (needs daily refresh)
+  /// 
+  /// After fetching from API, data is automatically saved to Firebase for future use.
   /// Auto-refreshes once per day
   Future<void> syncDailyHoroscope({
     required String sunSign,
@@ -245,11 +250,33 @@ class FreeAstrologyFirebaseSync {
   }
 
   /// Sync planetary positions from API to Firebase
+  /// Sync planetary positions from API to Firebase
+  /// 
+  /// IMPORTANT: Always checks Firebase cache first to avoid spam API requests.
+  /// Only calls API if data doesn't exist in Firebase.
+  /// After fetching from API, data is automatically saved to Firebase for future use.
   Future<void> syncPlanetaryPositions({
     required DateTime date,
     required double latitude,
     required double longitude,
   }) async {
+    final dateStr = FirestorePaths.dateId(date);
+    
+    // Check Firebase first - only call API if data doesn't exist
+    try {
+      final doc = await _firestore
+          .collection('planets_today')
+          .doc(dateStr)
+          .get();
+      
+      if (doc.exists) {
+        print('✅ Planetary positions for $dateStr already cached in Firebase - skipping API call');
+        return;
+      }
+    } catch (e) {
+      print('⚠️ Error checking cached planetary positions: $e - will proceed with API call');
+    }
+    
     // Check if API is available first
     if (!_apiService.isAvailable) {
       print('⚠️ FreeAstrologyAPI not available - skipping planetary positions sync');

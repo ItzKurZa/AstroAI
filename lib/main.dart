@@ -4,10 +4,12 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 
 import 'core/firebase/firestore_seeder.dart';
 import 'core/services/gemini_service.dart';
 import 'core/theme/app_theme.dart';
+import 'core/utils/web_helper.dart';
 import 'core/widgets/app_bottom_nav.dart';
 import 'features/auth/presentation/pages/login_page.dart';
 import 'features/chat/presentation/pages/chat_page.dart';
@@ -23,6 +25,21 @@ import 'core/firebase/firebase_options.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await dotenv.load(fileName: '.env');
+  
+  // Inject Google Client ID from .env into HTML meta tag (for web only)
+  if (kIsWeb) {
+    try {
+      final googleClientId = dotenv.env['GOOGLE_CLIENT_ID'];
+      if (googleClientId != null && googleClientId.isNotEmpty) {
+        injectGoogleClientId(googleClientId);
+      } else {
+        print('⚠️ GOOGLE_CLIENT_ID not found in .env file');
+      }
+    } catch (e) {
+      print('⚠️ Error injecting Google Client ID: $e');
+    }
+  }
+  
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
@@ -175,7 +192,11 @@ class _AppShellState extends State<AppShell> {
         bottomNavigationBar: AppBottomNav(
           items: navItems,
           currentIndex: _currentIndex,
-          onChanged: (index) => setState(() => _currentIndex = index),
+          onChanged: (index) {
+            if (mounted) {
+              setState(() => _currentIndex = index);
+            }
+          },
         ),
       ),
     );

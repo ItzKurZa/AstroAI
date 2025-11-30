@@ -58,16 +58,41 @@ class HomeRemoteDataSource {
         tipDoc.data() != null &&
         (tipDoc.data()?['text'] as String?)?.isNotEmpty == true;
 
-    // If data is missing, trigger background update (don't wait - non-blocking)
+    // If data is missing, trigger background update and wait for it
     // All data will be generated from FreeAstrologyAPI, not sample data
     if (!hasPlanetaryData || !hasYouTodayData || !hasTipData) {
-      // Run updates in background, don't block UI
-      _updateDataInBackground(targetDate, userId).catchError((e) {
-        print('⚠️ Background data update error: $e');
-      });
+      // Wait for background update to complete so UI shows data immediately
+      await _updateDataInBackground(targetDate, userId);
+      
+      // Re-fetch data after background update
+      final updatedResults = await Future.wait([
+        _firestore.doc(FirestorePaths.planetsTodayDoc(targetDate)).get(),
+        _firestore.doc(FirestorePaths.youTodayDoc(targetDate)).get(),
+        _firestore.doc(FirestorePaths.tipOfDayDoc(targetDate)).get(),
+      ]);
+      
+      final updatedPlanetsDoc = updatedResults[0];
+      final updatedSectionsDoc = updatedResults[1];
+      final updatedTipDoc = updatedResults[2];
+      
+      // Update cache with fresh data
+      final updatedHomeContent = {
+        'planets': updatedPlanetsDoc.exists ? updatedPlanetsDoc.data() : null,
+        'sections': updatedSectionsDoc.exists ? updatedSectionsDoc.data() : null,
+        'tip': updatedTipDoc.exists ? updatedTipDoc.data() : null,
+      };
+      await _cache.saveHomeContent(dateId, updatedHomeContent);
+      
+      // Return updated data
+      return HomeContentModel.fromSnapshots(
+        planetsDoc: updatedPlanetsDoc,
+        sectionsDoc: updatedSectionsDoc,
+        tipDoc: updatedTipDoc,
+        user: user,
+      );
     }
 
-    // Return data immediately
+    // Return data immediately if it already exists
     return HomeContentModel.fromSnapshots(
       planetsDoc: planetsDoc,
       sectionsDoc: sectionsDoc,

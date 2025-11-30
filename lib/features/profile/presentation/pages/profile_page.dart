@@ -46,11 +46,13 @@ class _ProfilePageState extends State<ProfilePage> {
       print('⚠️ Profile already loading, skipping duplicate load');
       return;
     }
+    if (mounted) {
     setState(() {
-      _isLoading = true;
+        _isLoading = true;
       _reloadKey++; // Increment key to force rebuild
       _future = _loadProfile();
     });
+    }
   }
 
   Future<_ProfilePayload> _loadProfile() async {

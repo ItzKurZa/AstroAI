@@ -17,6 +17,11 @@ class FreeAstrologyApiService {
     return _instance!;
   }
 
+  // Track if we've already logged network errors to avoid spam
+  bool _hasLoggedNetworkError = false;
+  // Track if API has failed (network error) - if true, skip all future API calls
+  bool _apiHasFailed = false;
+
   FreeAstrologyApiService._()
       : _baseUrl = _getBaseUrl(),
         _apiKey = dotenv.env['ASTROLOGY_API_KEY'] {
@@ -55,6 +60,8 @@ class FreeAstrologyApiService {
   
   /// Check if API is available (has base URL and key)
   bool get isAvailable {
+    // If API has failed (network error), don't try again
+    if (_apiHasFailed) return false;
     if (_baseUrl.isEmpty) return false;
     if (_apiKey == null) return false;
     return _apiKey.isNotEmpty;
@@ -78,6 +85,11 @@ class FreeAstrologyApiService {
     required double longitude,
     String? timezone,
   }) async {
+    // Skip API call if it has already failed (network error)
+    if (_apiHasFailed) {
+      throw Exception('FreeAstrologyAPI is unavailable (previous network error). Using fallback calculation.');
+    }
+    
     try {
       // Format date and time
       final dateStr = '${birthDate.year}-${birthDate.month.toString().padLeft(2, '0')}-${birthDate.day.toString().padLeft(2, '0')}';
@@ -95,14 +107,50 @@ class FreeAstrologyApiService {
 
       final uri = Uri.parse('$_baseUrl/birth-chart').replace(queryParameters: queryParams);
       
-      final response = await http.get(
+      http.Response response;
+      try {
+        response = await http.get(
         uri,
         headers: {
           'Content-Type': 'application/json',
           if (_apiKey != null) 'X-API-Key': _apiKey,
           if (_apiKey != null) 'Authorization': 'Bearer $_apiKey',
         },
-      );
+        ).timeout(
+          const Duration(seconds: 10),
+          onTimeout: () {
+            throw Exception('FreeAstrologyAPI request timeout. The API may be unavailable or network is slow.');
+          },
+        );
+      } on http.ClientException catch (e) {
+        // Network errors (DNS, connection refused, etc.)
+        // Mark API as failed to skip future calls
+        _apiHasFailed = true;
+        // Only log once to avoid console spam
+        if (!_hasLoggedNetworkError) {
+          print('⚠️ FreeAstrologyAPI unavailable (network/DNS error). Using fallback calculation.');
+          print('ℹ️ This error will not be shown again. App will continue using local calculations.');
+          _hasLoggedNetworkError = true;
+        }
+        throw Exception('Network error connecting to FreeAstrologyAPI: ${e.message}. The API endpoint may be unavailable or incorrect. Using fallback calculation.');
+      } catch (e) {
+        // Other errors (timeout, etc.)
+        if (e.toString().contains('timeout') || e.toString().contains('Timeout') || 
+            e.toString().contains('ERR_NAME_NOT_RESOLVED') || 
+            e.toString().contains('Failed to fetch')) {
+          _apiHasFailed = true;
+          if (!_hasLoggedNetworkError) {
+            print('⚠️ FreeAstrologyAPI request timeout/network error. Using fallback calculation.');
+            _hasLoggedNetworkError = true;
+          }
+          throw Exception('FreeAstrologyAPI request timeout. The API may be unavailable or network is slow. Using fallback calculation.');
+        }
+        if (!_hasLoggedNetworkError) {
+          print('⚠️ FreeAstrologyAPI connection failed. Using fallback calculation.');
+          _hasLoggedNetworkError = true;
+        }
+        throw Exception('Failed to connect to FreeAstrologyAPI: $e. Using fallback calculation.');
+      }
 
       if (response.statusCode != 200) {
         throw Exception('FreeAstrologyAPI error: ${response.statusCode} - ${response.body}');
@@ -132,6 +180,10 @@ class FreeAstrologyApiService {
         throw Exception('Failed to parse FreeAstrologyAPI response as JSON: $e. Response body: ${bodyTrimmed.length > 200 ? bodyTrimmed.substring(0, 200) + "..." : bodyTrimmed}');
       }
     } catch (e) {
+      // Re-throw with more context if it's not already wrapped
+      if (e.toString().contains('FreeAstrologyAPI') || e.toString().contains('Network error') || e.toString().contains('timeout')) {
+        rethrow;
+      }
       throw Exception('Failed to fetch birth chart from FreeAstrologyAPI: $e');
     }
   }
@@ -141,6 +193,11 @@ class FreeAstrologyApiService {
     required String sunSign,
     DateTime? date,
   }) async {
+    // Skip API call if it has already failed (network error)
+    if (_apiHasFailed) {
+      throw Exception('FreeAstrologyAPI is unavailable (previous network error). Using fallback calculation.');
+    }
+    
     try {
       final dateStr = date != null
           ? '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}'
@@ -200,6 +257,11 @@ class FreeAstrologyApiService {
     required double latitude,
     required double longitude,
   }) async {
+    // Skip API call if it has already failed (network error)
+    if (_apiHasFailed) {
+      throw Exception('FreeAstrologyAPI is unavailable (previous network error). Using fallback calculation.');
+    }
+    
     try {
       final dateStr = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
       

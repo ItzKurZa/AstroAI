@@ -22,7 +22,7 @@ class _SplashPageState extends State<SplashPage> {
 
   Future<void> _checkAuthAndNavigate() async {
     await Future.delayed(const Duration(seconds: 1));
-    if (!mounted) return;
+      if (!mounted) return;
     
     final user = FirebaseAuth.instance.currentUser;
     if (user != null) {
@@ -47,7 +47,6 @@ class _SplashPageState extends State<SplashPage> {
               const Spacer(),
               const LogoBadge(size: 256),
               const Spacer(),
-              const HomeIndicatorBar(),
               const SizedBox(height: 16),
             ],
           ),

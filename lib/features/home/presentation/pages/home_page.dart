@@ -64,29 +64,40 @@ class _HomePageState extends State<HomePage> {
 
 
   void _onDateSelected(DateTime date) {
+    if (!mounted) return;
     setState(() {
       _selectedDate = date;
-      // Fetch content for selected date
-      // Data will be calculated automatically if not exists
-      try {
-        final userId = currentUserId;
-        _contentFuture = _repository.fetchHomeContent(userId, date: date);
-      } catch (e) {
-        // Only navigate to login if it's an authentication error
-        final errorMessage = e.toString();
-        if (errorMessage.contains('No user logged in') || 
-            errorMessage.contains('currentUserId')) {
-          if (mounted) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              Navigator.of(context).pushReplacementNamed('/auth/login');
-            });
-          }
-          return;
-        }
-        // For other errors, just reload with current date
-        _loadContent();
-      }
     });
+    
+    // Fetch content for selected date (async, outside setState)
+    // Data will be calculated automatically if not exists
+    _loadContentForDate(date);
+  }
+  
+  Future<void> _loadContentForDate(DateTime date) async {
+    try {
+      final userId = currentUserId;
+      // Create new future and update state to trigger rebuild
+      if (mounted) {
+        setState(() {
+          _contentFuture = _repository.fetchHomeContent(userId, date: date);
+        });
+      }
+    } catch (e) {
+      // Only navigate to login if it's an authentication error
+      final errorMessage = e.toString();
+      if (errorMessage.contains('No user logged in') || 
+          errorMessage.contains('currentUserId')) {
+        if (mounted) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            Navigator.of(context).pushReplacementNamed('/auth/login');
+          });
+        }
+        return;
+      }
+      // For other errors, just reload with current date
+      _loadContent();
+    }
   }
 
   @override
@@ -114,9 +125,11 @@ class _HomePageState extends State<HomePage> {
                         onPressed: () {
                           try {
                             final userId = currentUserId;
+                            if (mounted) {
                           setState(() {
-                              _contentFuture = _repository.fetchHomeContent(userId);
+                                _contentFuture = _repository.fetchHomeContent(userId);
                           });
+                            }
                           } catch (e) {
                             // If no user, navigate to login
                             if (mounted) {
@@ -294,20 +307,52 @@ class _WeekDatePicker extends StatefulWidget {
 }
 
 class _WeekDatePickerState extends State<_WeekDatePicker> {
-  late List<DateTime> _weekDays;
+  late PageController _pageController;
+  late int _currentPageIndex;
 
   @override
   void initState() {
     super.initState();
-    _weekDays = _getWeekDays(widget.selectedDate);
+    // Calculate initial page index (0 = current week, negative = past weeks, positive = future weeks)
+    _currentPageIndex = _getPageIndexForDate(widget.selectedDate);
+    _pageController = PageController(initialPage: _currentPageIndex);
   }
 
   @override
   void didUpdateWidget(_WeekDatePicker oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.selectedDate != widget.selectedDate) {
-      _weekDays = _getWeekDays(widget.selectedDate);
+      final newPageIndex = _getPageIndexForDate(widget.selectedDate);
+      if (newPageIndex != _currentPageIndex) {
+        _currentPageIndex = newPageIndex;
+        _pageController.animateToPage(
+          _currentPageIndex,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+        );
+      }
     }
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  int _getPageIndexForDate(DateTime date) {
+    // Calculate how many weeks from today
+    final today = DateTime.now();
+    final todayMonday = today.subtract(Duration(days: today.weekday - 1));
+    final dateMonday = date.subtract(Duration(days: date.weekday - 1));
+    final difference = dateMonday.difference(todayMonday).inDays;
+    return (difference / 7).round();
+  }
+
+  DateTime _getDateForPageIndex(int pageIndex) {
+    final today = DateTime.now();
+    final todayMonday = today.subtract(Duration(days: today.weekday - 1));
+    return todayMonday.add(Duration(days: pageIndex * 7));
   }
 
   List<DateTime> _getWeekDays(DateTime date) {
@@ -320,24 +365,20 @@ class _WeekDatePickerState extends State<_WeekDatePicker> {
     return days[weekday - 1];
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildWeekView(DateTime weekStart) {
+    final weekDays = _getWeekDays(weekStart);
+    
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: const BoxDecoration(
-        color: AppColors.surfacePrimary,
-        border: Border(
-          bottom: BorderSide(color: Colors.white, width: 1),
-        ),
-      ),
       child: Column(
         children: [
           // Day names row
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: _weekDays.map((day) {
+            children: weekDays.map((day) {
               final isSelected = day.day == widget.selectedDate.day &&
-                  day.month == widget.selectedDate.month;
+                  day.month == widget.selectedDate.month &&
+                  day.year == widget.selectedDate.year;
               return GestureDetector(
                 onTap: () => widget.onDateSelected(day),
                 child: Container(
@@ -366,9 +407,10 @@ class _WeekDatePickerState extends State<_WeekDatePicker> {
           // Day numbers row
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: _weekDays.map((day) {
+            children: weekDays.map((day) {
               final isSelected = day.day == widget.selectedDate.day &&
-                  day.month == widget.selectedDate.month;
+                  day.month == widget.selectedDate.month &&
+                  day.year == widget.selectedDate.year;
               return GestureDetector(
                 onTap: () => widget.onDateSelected(day),
                 child: Container(
@@ -397,6 +439,35 @@ class _WeekDatePickerState extends State<_WeekDatePicker> {
           ),
         ],
       ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.surfacePrimary,
+        border: Border(
+          bottom: BorderSide(color: Colors.white, width: 1),
+        ),
+                ),
+      child: SizedBox(
+        height: 80, // Fixed height for week picker
+        child: PageView.builder(
+          controller: _pageController,
+          onPageChanged: (index) {
+            if (mounted) {
+              setState(() {
+                _currentPageIndex = index;
+              });
+            }
+          },
+          itemBuilder: (context, index) {
+            final weekStart = _getDateForPageIndex(index);
+            return _buildWeekView(weekStart);
+          },
+                ),
+              ),
     );
   }
 }

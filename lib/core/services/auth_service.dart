@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'nearby_users_service.dart';
 
 /// Service for authentication with proper Firebase validation
@@ -14,6 +16,35 @@ class AuthService {
 
   final FirebaseAuth _auth = FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  
+  // Configure GoogleSignIn for web platform
+  // Client ID is loaded from .env file
+  GoogleSignIn get _googleSignIn {
+    // Debug: Check if dotenv is loaded
+    final allKeys = dotenv.env.keys.toList();
+    print('🔍 Available .env keys: ${allKeys.join(", ")}');
+    print('🔍 Looking for GOOGLE_CLIENT_ID...');
+    
+    final clientId = dotenv.env['GOOGLE_CLIENT_ID'];
+    print('🔍 GOOGLE_CLIENT_ID value: ${clientId != null ? "${clientId.substring(0, clientId.length > 20 ? 20 : clientId.length)}..." : "null"}');
+    
+    if (clientId == null || clientId.trim().isEmpty) {
+      print('❌ GOOGLE_CLIENT_ID is null or empty');
+      print('📋 All .env keys: ${allKeys}');
+      throw Exception(
+        'GOOGLE_CLIENT_ID not found in .env file.\n'
+        'Please add this line to your .env file:\n'
+        'GOOGLE_CLIENT_ID=725174626840-63t5cpahmgsqb0m1l1m4roffl66u0gc7.apps.googleusercontent.com\n\n'
+        'Available keys in .env: ${allKeys.join(", ")}'
+      );
+    }
+    
+    print('✅ GOOGLE_CLIENT_ID loaded successfully');
+    return GoogleSignIn(
+      scopes: ['email', 'profile'],
+      clientId: clientId.trim(),
+    );
+  }
 
   /// Login with email and password
   /// 
@@ -447,8 +478,96 @@ class AuthService {
   /// Get current user
   User? get currentUser => _auth.currentUser;
 
+  /// Sign in with Google
+  /// 
+  /// Authenticates user with Google and creates/updates user profile in Firestore
+  Future<UserCredential> signInWithGoogle() async {
+    try {
+      // Trigger the Google Sign-In flow
+      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+      
+      if (googleUser == null) {
+        // User canceled the sign-in
+        throw Exception('Google sign-in was canceled');
+      }
+
+      // Obtain the auth details from the request
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+
+      // Create a new credential
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      // Sign in to Firebase with the Google credential
+      final userCredential = await _auth.signInWithCredential(credential);
+      
+      final user = userCredential.user;
+      if (user == null) {
+        throw Exception('Failed to sign in with Google');
+      }
+
+      // Check if user profile exists in Firestore
+      final userDoc = await _firestore.collection('users').doc(user.uid).get();
+      
+      if (!userDoc.exists) {
+        // Create user profile in Firestore
+        await _firestore.collection('users').doc(user.uid).set({
+          'displayName': user.displayName ?? 'User',
+          'email': user.email ?? '',
+          'avatarUrl': user.photoURL ?? 'assets/images/app/logo.png',
+          'planType': 'Free', // Default plan type
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+          'authProvider': 'google', // Track that user signed in with Google
+        }, SetOptions(merge: true));
+        print('✅ Created new user profile for Google user: ${user.uid}');
+      } else {
+        // Update existing profile with latest Google info
+        await _firestore.collection('users').doc(user.uid).update({
+          'displayName': user.displayName ?? userDoc.data()?['displayName'] ?? 'User',
+          'email': user.email ?? userDoc.data()?['email'] ?? '',
+          'avatarUrl': user.photoURL ?? userDoc.data()?['avatarUrl'] ?? 'assets/images/app/logo.png',
+          'updatedAt': FieldValue.serverTimestamp(),
+          'authProvider': 'google',
+        });
+        print('✅ Updated existing user profile for Google user: ${user.uid}');
+      }
+
+      return userCredential;
+    } on FirebaseAuthException catch (e) {
+      String errorMessage;
+      switch (e.code) {
+        case 'account-exists-with-different-credential':
+          errorMessage = 'An account already exists with a different sign-in method.';
+          break;
+        case 'invalid-credential':
+          errorMessage = 'The credential is invalid or has expired.';
+          break;
+        case 'operation-not-allowed':
+          errorMessage = 'Google sign-in is not enabled. Please contact support.';
+          break;
+        case 'user-disabled':
+          errorMessage = 'This account has been disabled.';
+          break;
+        default:
+          errorMessage = 'Google sign-in failed: ${e.message ?? 'Unknown error'}';
+      }
+      throw Exception(errorMessage);
+    } catch (e) {
+      if (e.toString().contains('canceled')) {
+        rethrow; // Re-throw cancellation as-is
+      }
+      throw Exception('Google sign-in failed: ${e.toString()}');
+    }
+  }
+
   /// Sign out
   Future<void> signOut() async {
+    // Sign out from Google
+    await _googleSignIn.signOut();
+    // Sign out from Firebase
     await _auth.signOut();
   }
 }

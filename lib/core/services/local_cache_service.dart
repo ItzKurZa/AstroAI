@@ -24,6 +24,7 @@ class LocalCacheService {
   static const String _keyPlanetaryData = '${_keyPrefix}planetary_data_';
   static const String _keyBirthChart = '${_keyPrefix}birth_chart';
   static const String _keyCharacteristics = '${_keyPrefix}characteristics_';
+  static const String _keyAstrologicalEvents = '${_keyPrefix}astrological_events';
   static const String _keyCacheTimestamp = '${_keyPrefix}timestamp_';
 
   /// Encode Map to handle Timestamp objects for JSON serialization
@@ -384,6 +385,46 @@ class LocalCacheService {
       return decoded.cast<Map<String, dynamic>>();
     } catch (e) {
       print('❌ Error reading characteristics cache: $e');
+      return null;
+    }
+  }
+
+  /// Save astrological events to cache
+  Future<void> saveAstrologicalEvents(List<Map<String, dynamic>> events) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_keyAstrologicalEvents, jsonEncode(events));
+      await prefs.setString('${_keyCacheTimestamp}astrological_events', 
+          DateTime.now().toIso8601String());
+      print('✅ Cached ${events.length} astrological events');
+    } catch (e) {
+      print('❌ Error caching astrological events: $e');
+    }
+  }
+
+  /// Get astrological events from cache
+  /// Cache valid for 7 days (events don't change frequently)
+  Future<List<Map<String, dynamic>>?> getAstrologicalEvents() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cached = prefs.getString(_keyAstrologicalEvents);
+      if (cached == null) return null;
+      
+      final timestamp = prefs.getString('${_keyCacheTimestamp}astrological_events');
+      if (timestamp != null) {
+        final cacheTime = DateTime.parse(timestamp);
+        final age = DateTime.now().difference(cacheTime);
+        // Cache valid for 7 days
+        if (age.inDays > 7) {
+          print('⚠️ Astrological events cache expired');
+          return null;
+        }
+      }
+      
+      final decoded = jsonDecode(cached) as List<dynamic>;
+      return decoded.map((e) => e as Map<String, dynamic>).toList();
+    } catch (e) {
+      print('❌ Error reading astrological events cache: $e');
       return null;
     }
   }

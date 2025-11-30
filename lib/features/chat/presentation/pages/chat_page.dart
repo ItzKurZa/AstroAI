@@ -103,7 +103,9 @@ class _ChatPageState extends State<ChatPage> {
           print('Error initializing chat: $e');
         }
       }
-      setState(() => _isInitialized = true);
+      if (mounted) {
+        setState(() => _isInitialized = true);
+      }
       
       // If there's an event to discuss, auto-send a message about it
       if (widget.eventTitle != null && widget.eventTitle!.isNotEmpty) {
@@ -144,7 +146,9 @@ class _ChatPageState extends State<ChatPage> {
       
       fullMessage += '\n\nPlease provide a detailed explanation about this astrological event and how it might affect me personally based on my birth chart.';
       
-      setState(() => _isLoading = true);
+      if (mounted) {
+        setState(() => _isLoading = true);
+      }
       
       // Save short message to Firestore (for UI display)
       await _repository.sendMessage(userId, displayMessage);
@@ -175,7 +179,9 @@ class _ChatPageState extends State<ChatPage> {
     if (text.isEmpty || _isLoading) return;
     
     _controller.clear();
-    setState(() => _isLoading = true);
+    if (mounted) {
+      setState(() => _isLoading = true);
+    }
     
     try {
       final userId = currentUserId; // This will throw if no user
@@ -190,7 +196,7 @@ class _ChatPageState extends State<ChatPage> {
         );
       } else {
         await _consultationService.sendMessage(userId, text);
-      }
+  }
     } catch (e) {
       print('Error sending message: $e');
       // Check if error is due to no user logged in

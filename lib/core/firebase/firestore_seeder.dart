@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../services/daily_planetary_service.dart';
 import '../services/you_today_updater.dart';
 import '../services/tip_of_day_service.dart';
+import '../services/astrological_event_generator.dart';
 import 'firestore_paths.dart';
 
 class FirestoreSeeder {
@@ -94,10 +95,15 @@ class FirestoreSeeder {
   }
 
   Future<void> _ensureAstrologicalEvents() async {
-    // Astrological events should be generated from real astronomical data
-    // or fetched from external APIs, not seeded with sample data
-    // Events will be created dynamically when needed
-    print('ℹ️ Astrological events will be generated dynamically from real astronomical data.');
+    // Generate astrological events automatically
+    try {
+      final generator = AstrologicalEventGenerator.instance;
+      await generator.generateEventsForNext90Days();
+      print('✅ Astrological events generated successfully');
+    } catch (e) {
+      print('⚠️ Error generating astrological events: $e');
+      // Don't throw - events generation is non-critical
+    }
   }
 }
 

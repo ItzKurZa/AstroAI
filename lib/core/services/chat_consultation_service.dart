@@ -85,7 +85,7 @@ class ChatConsultationService {
       );
       session = _userSessions[userId]!;
     }
-    
+
     // If this is the first message, send a welcome greeting first
     if (isFirstMessage) {
       final userData = await _getUserData(userId);
@@ -106,7 +106,7 @@ class ChatConsultationService {
 
     // Save user message (only if saveUserMessage is true)
     if (saveUserMessage) {
-      await _saveMessage(userId, 'user', message);
+    await _saveMessage(userId, 'user', message);
     }
 
     // Get AI response using this user's session (already cleaned by GeminiService)
