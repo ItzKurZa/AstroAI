@@ -2,7 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/constants/app_colors.dart';
-import '../../../../core/services/premium_service.dart';
 import '../../../../core/utils/current_user.dart';
 import '../../../../core/widgets/app_background.dart';
 import '../../../../core/widgets/app_safe_image.dart';
@@ -43,9 +42,22 @@ class _HomePageState extends State<HomePage> {
       final userId = currentUserId; // This will throw if no user
       _contentFuture = _repository.fetchHomeContent(userId, date: _selectedDate);
     } catch (e) {
-      // If no user, navigate to login
-      if (mounted) {
-        Navigator.of(context).pushReplacementNamed('/auth/login');
+      // Only navigate to login if it's an authentication error
+      final errorMessage = e.toString();
+      if (errorMessage.contains('No user logged in') || 
+          errorMessage.contains('currentUserId')) {
+        if (mounted) {
+          // Use addPostFrameCallback to avoid navigation during build/pop
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && Navigator.of(context).canPop()) {
+              // Don't navigate if we can pop (user is navigating back)
+              return;
+            }
+            if (mounted) {
+              Navigator.of(context).pushReplacementNamed('/auth/login');
+            }
+          });
+        }
       }
     }
   }
@@ -60,10 +72,19 @@ class _HomePageState extends State<HomePage> {
         final userId = currentUserId;
         _contentFuture = _repository.fetchHomeContent(userId, date: date);
       } catch (e) {
-        // If no user, navigate to login
-        if (mounted) {
-          Navigator.of(context).pushReplacementNamed('/auth/login');
+        // Only navigate to login if it's an authentication error
+        final errorMessage = e.toString();
+        if (errorMessage.contains('No user logged in') || 
+            errorMessage.contains('currentUserId')) {
+          if (mounted) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              Navigator.of(context).pushReplacementNamed('/auth/login');
+            });
+          }
+          return;
         }
+        // For other errors, just reload with current date
+        _loadContent();
       }
     });
   }
@@ -93,9 +114,9 @@ class _HomePageState extends State<HomePage> {
                         onPressed: () {
                           try {
                             final userId = currentUserId;
-                            setState(() {
+                          setState(() {
                               _contentFuture = _repository.fetchHomeContent(userId);
-                            });
+                          });
                           } catch (e) {
                             // If no user, navigate to login
                             if (mounted) {
@@ -157,8 +178,6 @@ class _HomeContentView extends StatelessWidget {
               const SizedBox(height: 16),
               _PlanetsTodaySection(planets: content.planets),
               const SizedBox(height: 24),
-              _PremiumCard(userId: content.user.id),
-              const SizedBox(height: 32),
               _YouTodaySection(sections: content.sections),
               const SizedBox(height: 24),
               _TipCard(tip: content.tip),
@@ -200,21 +219,21 @@ class _UserHeader extends StatelessWidget {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              AppAvatar(
-                imageUrl: user.avatarUrl,
+          AppAvatar(
+            imageUrl: user.avatarUrl,
                 size: 48,
-                borderColor: Colors.white,
-              ),
+            borderColor: Colors.white,
+          ),
               const SizedBox(width: 12),
-              Text(
-                user.displayName,
-                style: const TextStyle(
-                  fontFamily: 'Literata',
-                  fontSize: 18,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.white,
-                ),
-              ),
+          Text(
+            user.displayName,
+            style: const TextStyle(
+              fontFamily: 'Literata',
+              fontSize: 18,
+              fontWeight: FontWeight.w500,
+              color: Colors.white,
+            ),
+          ),
             ],
           ),
           // Right: Planets & Signs (sát bên phải, cách đều nhau)
@@ -589,126 +608,6 @@ class _TipCard extends StatelessWidget {
                 ?.copyWith(fontStyle: FontStyle.italic),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _PremiumCard extends StatefulWidget {
-  const _PremiumCard({required this.userId});
-
-  final String userId;
-
-  @override
-  State<_PremiumCard> createState() => _PremiumCardState();
-}
-
-class _PremiumCardState extends State<_PremiumCard> {
-  bool _isPremium = false;
-  bool _loading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _checkPremiumStatus();
-  }
-
-  Future<void> _checkPremiumStatus() async {
-    final premiumService = PremiumService.instance;
-    final isPremium = await premiumService.isPremium(widget.userId);
-    if (mounted) {
-      setState(() {
-        _isPremium = isPremium;
-        _loading = false;
-      });
-    }
-  }
-
-  void _handlePremiumTap() {
-    // Show premium upgrade dialog or navigate to premium page
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Upgrade to Premium'),
-        content: const Text('Unlock all premium features!'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              // In production, integrate with payment service
-            },
-            child: const Text('Upgrade'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_loading) {
-      return const SizedBox(height: 160);
-    }
-
-    if (_isPremium) {
-      return const SizedBox.shrink(); // Hide if already premium
-    }
-
-    return GestureDetector(
-      onTap: _handlePremiumTap,
-      child: Container(
-        height: 160,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(28),
-          gradient: const LinearGradient(
-            colors: [Color(0xFF422D8E), Color(0xFFBCA8F4)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-        ),
-        padding: const EdgeInsets.all(20),
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                'ADVISOR',
-                style: TextStyle(
-                  fontFamily: 'Literata',
-                  fontSize: 12,
-                  fontWeight: FontWeight.w400,
-                  color: AppColors.surfacePrimary,
-                  letterSpacing: 0.5,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Try Premium',
-                style: TextStyle(
-                  fontFamily: 'Literata',
-                  fontSize: 24,
-                  fontWeight: FontWeight.w500,
-                  color: AppColors.surfacePrimary,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '-30% DISCOUNT',
-                style: TextStyle(
-                  fontFamily: 'Literata',
-                  fontSize: 14,
-                  fontWeight: FontWeight.w400,
-                  color: AppColors.surfacePrimary,
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

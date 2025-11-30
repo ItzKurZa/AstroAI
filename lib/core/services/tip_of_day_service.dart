@@ -1,6 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../firebase/firestore_paths.dart';
-import 'freeastrology_api_service.dart';
 
 /// Service to generate and update Tip of Day
 /// 

@@ -20,7 +20,8 @@ class ChatConsultationService {
 
   /// Start a new consultation session for a user
   /// Each user gets their own session with personalized system instruction
-  Future<String> startSession({
+  /// Note: Does NOT send a welcome message automatically - only initializes the session
+  Future<void> startSession({
     required String userId,
     required String userName,
     required String sunSign,
@@ -51,24 +52,26 @@ class ChatConsultationService {
     // Store session for this user
     _userSessions[userId] = session;
 
-    // Get the initial greeting
-    final greeting = 'Welcome, dear $userName! ✨ I sense the cosmic energies surrounding you today. '
-        'As a $sunSign with $moonSign Moon and $ascendantSign rising, you carry a unique '
-        'celestial blueprint. How may I illuminate your path today? Would you like to explore '
-        'your love life, career prospects, or perhaps understand the current planetary transits '
-        'affecting you?';
-
-    // Save to Firestore
-    await _saveMessage(userId, 'advisor', greeting);
-
-    return greeting;
+    // DO NOT send welcome message automatically
+    // Welcome message will be sent only when user sends their first message
   }
 
   /// Send a message and get AI response
   /// Uses the user's own session to maintain conversation context
-  Future<String> sendMessage(String userId, String message) async {
+  /// If this is the first message, sends a welcome greeting first
+  /// [saveUserMessage] - if false, don't save user message to Firestore (useful when message is already saved separately)
+  Future<String> sendMessage(String userId, String message, {bool saveUserMessage = true}) async {
     // Get or create session for this user
     ChatSession? session = _userSessions[userId];
+    
+    // Check if this is the first message (no messages in Firestore yet)
+    final messagesSnapshot = await _firestore
+        .collection('chat_threads')
+        .doc(userId)
+        .collection('messages')
+        .limit(1)
+        .get();
+    final isFirstMessage = messagesSnapshot.docs.isEmpty;
     
     if (session == null) {
       // Session doesn't exist, create a new one
@@ -82,11 +85,32 @@ class ChatConsultationService {
       );
       session = _userSessions[userId]!;
     }
+    
+    // If this is the first message, send a welcome greeting first
+    if (isFirstMessage) {
+      final userData = await _getUserData(userId);
+      final userName = userData['displayName'] ?? 'Seeker';
+      final sunSign = userData['sunSign'] ?? 'Unknown';
+      final moonSign = userData['moonSign'] ?? 'Unknown';
+      final ascendantSign = userData['ascendantSign'] ?? 'Unknown';
+      
+      final greeting = 'Welcome, dear $userName! ✨ I sense the cosmic energies surrounding you today. '
+          'As a $sunSign with $moonSign Moon and $ascendantSign rising, you carry a unique '
+          'celestial blueprint. How may I illuminate your path today? Would you like to explore '
+          'your love life, career prospects, or perhaps understand the current planetary transits '
+          'affecting you?';
+      
+      // Save welcome message to Firestore
+      await _saveMessage(userId, 'advisor', greeting);
+    }
 
-    // Save user message
-    await _saveMessage(userId, 'user', message);
+    // Save user message (only if saveUserMessage is true)
+    if (saveUserMessage) {
+      await _saveMessage(userId, 'user', message);
+    }
 
     // Get AI response using this user's session (already cleaned by GeminiService)
+    // Simple approach: just send message, no key switching
     final response = await _geminiService.sendChatMessage(
       session,
       message,
@@ -257,7 +281,8 @@ class ChatConsultationService {
 
   /// Start a compatibility session with another user
   /// Creates a separate session for compatibility analysis
-  Future<String> startCompatibilitySession({
+  /// Note: Does NOT send a welcome message automatically - only initializes the session
+  Future<void> startCompatibilitySession({
     required String userId,
     required String userName,
     required String sunSign,
@@ -335,16 +360,66 @@ Do not use markdown formatting or special characters like ***.
     // Store compatibility session separately
     _userSessions[compatibilitySessionKey] = session;
 
-    // Get initial compatibility greeting
+    // DO NOT send welcome message automatically
+    // Welcome message will be sent only when user sends their first message
+  }
+  
+  /// Send a message in compatibility session and get AI response
+  /// If this is the first message, sends a welcome greeting first
+  Future<String> sendCompatibilityMessage(
+    String userId,
+    String targetUserId,
+    String message,
+  ) async {
+    final compatibilitySessionKey = '${userId}_compatibility_$targetUserId';
+    ChatSession? session = _userSessions[compatibilitySessionKey];
+    
+    if (session == null) {
+      // Need to recreate the session - this shouldn't happen if startCompatibilitySession was called
+      // But handle it gracefully
+      throw Exception('Compatibility session not initialized. Call startCompatibilitySession first.');
+    }
+    
+    // Check if this is the first message (no messages in Firestore yet)
+    final messagesSnapshot = await _firestore
+        .collection('chat_threads')
+        .doc(userId)
+        .collection('messages')
+        .limit(1)
+        .get();
+    final isFirstMessage = messagesSnapshot.docs.isEmpty;
+    
+    // If this is the first message, send a welcome greeting first
+    if (isFirstMessage) {
+      // Get user data for greeting
+      final userData = await _getUserData(userId);
+      final userName = userData['displayName'] ?? 'Seeker';
+      final sunSign = userData['sunSign'] ?? 'Unknown';
+      
+      // Get target user data
+      final targetUserData = await _getUserData(targetUserId);
+      final targetUserName = targetUserData['displayName'] ?? 'This person';
+      final targetSunSign = targetUserData['sunSign'] ?? 'Unknown';
+      
     final greeting = 'Greetings, $userName! ✨ I sense you\'re curious about your connection with $targetUserName. '
         'Let me analyze the cosmic dance between your $sunSign energy and their $targetSunSign essence. '
         'What would you like to know about your compatibility? You can ask me: '
         '"How compatible are we?", "What is their personality like?", or "Should we be friends?"';
 
-    // Save to Firestore
+      // Save welcome message to Firestore
     await _saveMessage(userId, 'advisor', greeting);
+    }
+    
+    // Save user message
+    await _saveMessage(userId, 'user', message);
+    
+    // Get AI response
+    final response = await _geminiService.sendChatMessage(session, message);
+    
+    // Save AI response
+    await _saveMessage(userId, 'advisor', response);
 
-    return greeting;
+    return response;
   }
 
   /// Format birth chart info for Gemini prompt

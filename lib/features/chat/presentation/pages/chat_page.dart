@@ -12,13 +12,18 @@ import '../../domain/entities/chat_message.dart';
 
 class ChatPage extends StatefulWidget {
   static const routeName = '/chat';
-  
+
   // Optional: chat about a specific user (for compatibility analysis)
   final String? targetUserId;
   final String? targetUserName;
   final String? targetSunSign;
   final String? targetMoonSign;
   final String? targetAscendantSign;
+
+  // Optional: auto-send message about an astrological event
+  final String? eventTitle;
+  final String? eventDescription;
+  final String? eventImpact;
 
   const ChatPage({
     super.key,
@@ -27,6 +32,9 @@ class ChatPage extends StatefulWidget {
     this.targetSunSign,
     this.targetMoonSign,
     this.targetAscendantSign,
+    this.eventTitle,
+    this.eventDescription,
+    this.eventImpact,
   });
 
   @override
@@ -96,11 +104,68 @@ class _ChatPageState extends State<ChatPage> {
         }
       }
       setState(() => _isInitialized = true);
+      
+      // If there's an event to discuss, auto-send a message about it
+      if (widget.eventTitle != null && widget.eventTitle!.isNotEmpty) {
+        // Wait a bit for the UI to render, then send the message
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (mounted) {
+          await _sendEventMessage();
+        }
+      }
     } catch (e) {
       // If no user, navigate to login
       print('Error: No user logged in: $e');
       if (mounted) {
         Navigator.of(context).pushReplacementNamed('/auth/login');
+      }
+    }
+  }
+
+  Future<void> _sendEventMessage() async {
+    if (widget.eventTitle == null || widget.eventTitle!.isEmpty) return;
+    
+    try {
+      final userId = currentUserId;
+      
+      // Display message (short, like a link/title) - saved to Firestore for UI
+      final displayMessage = 'I want to learn more about ${widget.eventTitle}';
+      
+      // Full message (with all context) - sent to AI in background
+      String fullMessage = 'I want to learn more about ${widget.eventTitle}';
+      
+      // Add description and impact as context for AI to provide detailed response
+      if (widget.eventDescription != null && widget.eventDescription!.isNotEmpty) {
+        fullMessage += '\n\nHere is the description: ${widget.eventDescription}';
+      }
+      if (widget.eventImpact != null && widget.eventImpact!.isNotEmpty) {
+        fullMessage += '\n\nHere is the impact: ${widget.eventImpact}';
+      }
+      
+      fullMessage += '\n\nPlease provide a detailed explanation about this astrological event and how it might affect me personally based on my birth chart.';
+      
+      setState(() => _isLoading = true);
+      
+      // Save short message to Firestore (for UI display)
+      await _repository.sendMessage(userId, displayMessage);
+      
+      // Send full message to AI (in background, not saved to Firestore as user message)
+      // ChatConsultationService will save the AI response
+      await _consultationService.sendMessage(userId, fullMessage, saveUserMessage: false);
+      
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    } catch (e) {
+      print('Error sending event message: $e');
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to send message. Please try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
       }
     }
   }
@@ -115,14 +180,17 @@ class _ChatPageState extends State<ChatPage> {
     try {
       final userId = currentUserId; // This will throw if no user
       
-      // Save user message first
-      await _repository.sendMessage(userId, text);
-      
-      // Get AI response
-      final response = await _consultationService.sendMessage(userId, text);
-      
-      // Save AI response
-      await _repository.sendAdvisorMessage(userId, response);
+      // Get AI response (ChatConsultationService will save both user message and AI response)
+      // Use compatibility message if chatting about a specific user
+      if (widget.targetUserId != null) {
+        await _consultationService.sendCompatibilityMessage(
+          userId,
+          widget.targetUserId!,
+          text,
+        );
+      } else {
+        await _consultationService.sendMessage(userId, text);
+      }
     } catch (e) {
       print('Error sending message: $e');
       // Check if error is due to no user logged in
@@ -147,31 +215,11 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
+
+
   @override
   Widget build(BuildContext context) {
     final topPadding = MediaQuery.of(context).padding.top;
-    final navItems = [
-      AppBottomNavItem(
-        label: 'Home',
-        defaultIcon: 'assets/images/app/navigation/Home.png',
-        selectedIcon: 'assets/images/app/navigation/Home-pressed.png',
-      ),
-      AppBottomNavItem(
-        label: 'AstroAI',
-        defaultIcon: 'assets/images/app/navigation/Chat-default.png',
-        selectedIcon: 'assets/images/app/navigation/Chat-pressed.png',
-      ),
-      AppBottomNavItem(
-        label: 'Horoscope',
-        defaultIcon: 'assets/images/app/navigation/Horoscope-default.png',
-        selectedIcon: 'assets/images/app/navigation/Horoscope-pressed.png',
-      ),
-      AppBottomNavItem(
-        label: 'Profile',
-        defaultIcon: 'assets/images/app/navigation/Profile-default.png',
-        selectedIcon: 'assets/images/app/navigation/Profile-pressed.png',
-      ),
-    ];
 
     return Scaffold(
       body: AppBackground(
@@ -199,13 +247,13 @@ class _ChatPageState extends State<ChatPage> {
                             final userId = currentUserId;
                             return StreamBuilder<List<ChatMessage>>(
                               stream: _repository.watchMessages(userId),
-                              builder: (context, snapshot) {
-                                if (!snapshot.hasData) {
-                                  return const Center(child: CircularProgressIndicator());
-                                }
-                                final messages = snapshot.data!;
-                                if (messages.isEmpty) {
-                                  return Center(
+                  builder: (context, snapshot) {
+                    if (!snapshot.hasData) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    final messages = snapshot.data!;
+                    if (messages.isEmpty) {
+                      return Center(
                                     child: Column(
                                       mainAxisAlignment: MainAxisAlignment.center,
                                       children: [
@@ -217,7 +265,7 @@ class _ChatPageState extends State<ChatPage> {
                                         const SizedBox(height: 16),
                                         Text(
                                           'Ask the stars anything...',
-                                          style: Theme.of(context).textTheme.bodyLarge,
+                          style: Theme.of(context).textTheme.bodyLarge,
                                         ),
                                         const SizedBox(height: 8),
                                         Text(
@@ -227,20 +275,20 @@ class _ChatPageState extends State<ChatPage> {
                                           ),
                                         ),
                                       ],
-                                    ),
-                                  );
-                                }
-                                return ListView.separated(
-                                  reverse: true,
-                                  padding: EdgeInsets.zero,
-                                  itemCount: messages.length,
-                                  separatorBuilder: (_, __) => const SizedBox(height: 12),
-                                  itemBuilder: (context, index) {
+                        ),
+                      );
+                    }
+                    return ListView.separated(
+                      reverse: true,
+                      padding: EdgeInsets.zero,
+                      itemCount: messages.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 12),
+                      itemBuilder: (context, index) {
                                     final message = messages[messages.length - 1 - index];
-                                    return _ChatCard(message: message);
-                                  },
-                                );
-                              },
+                        return _ChatCard(message: message);
+                      },
+                    );
+                  },
                             );
                           } catch (e) {
                             // If no user, show error and navigate to login
@@ -270,8 +318,8 @@ class _ChatPageState extends State<ChatPage> {
                       SizedBox(width: 12),
                       Text('Advisor is reading the stars...'),
                     ],
-                  ),
                 ),
+              ),
               const SizedBox(height: 12),
               _InputBar(
                 controller: _controller,
@@ -283,21 +331,47 @@ class _ChatPageState extends State<ChatPage> {
           ),
         ),
       ),
-      bottomNavigationBar: AppBottomNav(
-        items: navItems,
-        currentIndex: 1, // AstroAI tab is selected
-        onChanged: (index) {
-          if (index == 1) {
-            // Already on chat page, do nothing
-            return;
-          }
-          // Pop back to AppShell and update the index
-          // ChatPage was pushed on top of AppShell, so we need to:
-          // 1. Pop ChatPage to return to AppShell
-          // 2. Update AppShell's current index
-          Navigator.of(context).pop(index);
-        },
+      // Show bottom nav ONLY when ChatPage is pushed from HoroscopePage with event info
+      // When ChatPage is a tab in AppShell (no eventTitle), AppShell already has bottom nav
+      // Using eventTitle as indicator: if present, ChatPage was pushed from HoroscopePage
+      bottomNavigationBar: widget.eventTitle != null && widget.eventTitle!.isNotEmpty
+          ? _buildBottomNav(context)
+          : null,
+    );
+  }
+
+  Widget? _buildBottomNav(BuildContext context) {
+    final navItems = [
+      AppBottomNavItem(
+        label: 'Home',
+        defaultIcon: 'assets/images/app/navigation/Home.png',
+        selectedIcon: 'assets/images/app/navigation/Home-pressed.png',
       ),
+      AppBottomNavItem(
+        label: 'AstroAI',
+        defaultIcon: 'assets/images/app/navigation/Chat-default.png',
+        selectedIcon: 'assets/images/app/navigation/Chat-pressed.png',
+      ),
+      AppBottomNavItem(
+        label: 'Horoscope',
+        defaultIcon: 'assets/images/app/navigation/Horoscope-default.png',
+        selectedIcon: 'assets/images/app/navigation/Horoscope-pressed.png',
+      ),
+      AppBottomNavItem(
+        label: 'Profile',
+        defaultIcon: 'assets/images/app/navigation/Profile-default.png',
+        selectedIcon: 'assets/images/app/navigation/Profile-pressed.png',
+      ),
+    ];
+
+    return AppBottomNav(
+      items: navItems,
+      currentIndex: 1, // AstroAI is at index 1
+      onChanged: (index) {
+        if (index == 1) return; // Already on AstroAI
+        Navigator.of(context).pop(); // Go back to previous page (HoroscopePage)
+        // AppShell will handle tab switching when user returns
+      },
     );
   }
 }

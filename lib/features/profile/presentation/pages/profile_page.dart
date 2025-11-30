@@ -7,7 +7,6 @@ import 'package:ai_astrologer/core/utils/current_user.dart';
 import 'package:ai_astrologer/core/widgets/app_background.dart';
 import 'package:ai_astrologer/core/widgets/app_safe_image.dart';
 import 'package:ai_astrologer/core/services/user_preferences_service.dart';
-import 'package:ai_astrologer/core/services/local_cache_service.dart';
 import 'package:ai_astrologer/features/profile/data/datasources/profile_remote_data_source.dart';
 import 'package:ai_astrologer/features/profile/data/repositories/profile_repository_impl.dart';
 import 'package:ai_astrologer/features/profile/domain/entities/characteristic.dart';
@@ -27,6 +26,7 @@ class _ProfilePageState extends State<ProfilePage> {
   late final ProfileRepositoryImpl _repository;
   Future<_ProfilePayload>? _future;
   int _reloadKey = 0; // Key to force FutureBuilder rebuild
+  bool _isLoading = false; // Prevent duplicate loads
 
   @override
   void initState() {
@@ -34,11 +34,20 @@ class _ProfilePageState extends State<ProfilePage> {
     _repository = ProfileRepositoryImpl(
       ProfileRemoteDataSource(FirebaseFirestore.instance),
     );
+    // Only load if not already loading
+    if (!_isLoading && _future == null) {
     _reloadProfile();
+    }
   }
 
   void _reloadProfile() {
+    // Prevent duplicate loads
+    if (_isLoading) {
+      print('⚠️ Profile already loading, skipping duplicate load');
+      return;
+    }
     setState(() {
+      _isLoading = true;
       _reloadKey++; // Increment key to force rebuild
       _future = _loadProfile();
     });
@@ -47,18 +56,75 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<_ProfilePayload> _loadProfile() async {
     try {
       final userId = currentUserId; // This will throw if no user
+      print('📋 Loading profile for user: $userId');
       
-      // Clear local cache to force fresh data
-      await LocalCacheService.instance.clearUserProfile(userId);
+      // Don't clear cache on every load - only fetch fresh data if needed
+      // Cache will be cleared when profile is actually updated
       
-      final profile = await _repository.fetchProfile(userId);
-      final characteristics = await _repository.fetchCharacteristics(userId: userId);
-      final aspects = await _repository.fetchAspects(userId);
-      return _ProfilePayload(profile, characteristics, aspects);
-    } catch (e) {
-      // If no user, navigate to login
+      UserProfile profile;
+      List<Characteristic> characteristics;
+      List<Map<String, dynamic>> aspects;
+      
+      try {
+        profile = await _repository.fetchProfile(userId);
+        print('✅ Profile loaded: ${profile.displayName}');
+      } catch (e) {
+        print('❌ Error fetching profile: $e');
+        rethrow;
+      }
+      
+      try {
+        characteristics = await _repository.fetchCharacteristics(userId: userId);
+        print('✅ Characteristics loaded: ${characteristics.length} items');
+      } catch (e) {
+        print('⚠️ Error fetching characteristics: $e, using empty list');
+        characteristics = []; // Use empty list as fallback
+      }
+      
+      try {
+        aspects = await _repository.fetchAspects(userId);
+        print('✅ Aspects loaded: ${aspects.length} items');
+      } catch (e) {
+        print('⚠️ Error fetching aspects: $e, using empty list');
+        aspects = []; // Use empty list as fallback
+      }
+      
+      // Mark loading as complete
       if (mounted) {
-        Navigator.of(context).pushReplacementNamed('/auth/login');
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    return _ProfilePayload(profile, characteristics, aspects);
+    } catch (e, stackTrace) {
+      // Mark loading as complete even on error
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+      
+      // Log full error details for debugging
+      print('❌ Error loading profile: $e');
+      print('Stack trace: $stackTrace');
+      
+      // Only navigate to login if it's an authentication error
+      // Don't navigate for other errors (network, etc.)
+      final errorMessage = e.toString();
+      if (errorMessage.contains('No user logged in') || 
+          errorMessage.contains('currentUserId')) {
+        if (mounted) {
+          // Use addPostFrameCallback to avoid navigation during build/pop
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && Navigator.of(context).canPop()) {
+              // Don't navigate if we can pop (user is navigating back)
+              return;
+            }
+            if (mounted) {
+              Navigator.of(context).pushReplacementNamed('/auth/login');
+            }
+          });
+        }
       }
       // Return empty payload (will be handled by UI)
       rethrow;
@@ -80,6 +146,10 @@ class _ProfilePageState extends State<ProfilePage> {
                 return const Center(child: CircularProgressIndicator());
               }
               if (snapshot.hasError || !snapshot.hasData) {
+                final error = snapshot.error;
+                final errorMessage = error != null ? error.toString() : 'Unknown error';
+                print('❌ Profile page error: $errorMessage');
+                
                 return Center(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -92,9 +162,26 @@ class _ProfilePageState extends State<ProfilePage> {
                           color: Colors.white,
                         ),
                       ),
+                      if (error != null) ...[
+                        const SizedBox(height: 8),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 32),
+                          child: Text(
+                            errorMessage.length > 100 
+                                ? '${errorMessage.substring(0, 100)}...' 
+                                : errorMessage,
+                            style: GoogleFonts.literata(
+                              fontSize: 12,
+                              color: Colors.white70,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       ElevatedButton(
                         onPressed: () {
+                          print('🔄 Retrying profile load...');
                           _reloadProfile();
                         },
                         child: const Text('Retry'),

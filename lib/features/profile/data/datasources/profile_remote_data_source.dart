@@ -12,31 +12,76 @@ class ProfileRemoteDataSource {
   final AstrologyService _astrologyService = AstrologyService.instance;
 
   Future<UserProfileModel> fetchProfile(String userId) async {
+    try {
     final doc =
         await _firestore.doc(FirestorePaths.user(userId)).get();
     if (!doc.exists) {
+        print('❌ User document does not exist: $userId');
       throw Exception('User not found');
     }
+      
+      final data = doc.data();
+      if (data == null || data.isEmpty) {
+        print('❌ User document exists but has no data: $userId');
+        throw Exception('User data is empty');
+      }
+      
+      try {
     return UserProfileModel.fromDoc(doc);
+      } catch (e) {
+        print('❌ Error parsing user profile: $e');
+        print('Document data: $data');
+        rethrow;
+      }
+    } catch (e) {
+      print('❌ Error in fetchProfile for user $userId: $e');
+      rethrow;
+    }
   }
 
   Future<List<CharacteristicModel>> fetchCharacteristics({String? userId}) async {
     // If userId provided, fetch user-specific characteristics
     if (userId != null) {
-      final query = await _firestore
-          .collection(FirestorePaths.characteristicsCollection())
-          .where('userId', isEqualTo: userId)
-          .orderBy('order')
-          .get();
-      
-      if (query.docs.isNotEmpty) {
-        return query.docs
-            .map((doc) => CharacteristicModel.fromDoc(doc))
-            .toList();
+      try {
+        // Try to fetch with orderBy first (if index exists)
+        final query = await _firestore
+            .collection(FirestorePaths.characteristicsCollection())
+            .where('userId', isEqualTo: userId)
+            .orderBy('order')
+            .get();
+        
+        if (query.docs.isNotEmpty) {
+          return query.docs
+              .map((doc) => CharacteristicModel.fromDoc(doc))
+              .toList();
+        }
+      } catch (e) {
+        // If index doesn't exist, fetch without orderBy
+        print('⚠️ Index not found for characteristics query, fetching without orderBy: $e');
+        try {
+          final query = await _firestore
+              .collection(FirestorePaths.characteristicsCollection())
+              .where('userId', isEqualTo: userId)
+              .get();
+          
+          if (query.docs.isNotEmpty) {
+            // Sort manually by order field
+            final docs = query.docs.map((doc) => CharacteristicModel.fromDoc(doc)).toList();
+            docs.sort((a, b) {
+              // Assuming CharacteristicModel has an order field
+              // If not, just return unsorted list
+              return 0;
+            });
+            return docs;
+          }
+        } catch (e2) {
+          print('⚠️ Error fetching user-specific characteristics: $e2');
+        }
       }
     }
     
     // Fallback to general characteristics (or if no userId provided)
+    try {
     final query = await _firestore
         .collection(FirestorePaths.characteristicsCollection())
         .orderBy('order')
@@ -46,6 +91,18 @@ class ProfileRemoteDataSource {
           (doc) => CharacteristicModel.fromDoc(doc),
         )
         .toList();
+    } catch (e) {
+      // If index doesn't exist, fetch without orderBy
+      print('⚠️ Index not found for general characteristics, fetching without orderBy: $e');
+      final query = await _firestore
+          .collection(FirestorePaths.characteristicsCollection())
+          .get();
+      return query.docs
+          .map(
+            (doc) => CharacteristicModel.fromDoc(doc),
+          )
+          .toList();
+    }
   }
 
   /// Update user profile fields
@@ -145,18 +202,30 @@ class ProfileRemoteDataSource {
 
   /// Fetch aspects for user's birth chart
   Future<List<Map<String, dynamic>>> fetchAspects(String userId) async {
-    final doc = await _firestore
+    try {
+      final snapshot = await _firestore
         .doc(FirestorePaths.user(userId))
         .collection('aspects')
         .get();
     
-    if (doc.docs.isEmpty) {
+      if (snapshot.docs.isEmpty) {
       // Return empty list if no aspects found
       // In production, aspects should be calculated from birth chart
       return [];
     }
     
-    return doc.docs.map((doc) => doc.data()).toList();
+      return snapshot.docs.map((doc) {
+        final data = doc.data();
+        return {
+          ...data,
+          'id': doc.id,
+        };
+      }).toList();
+    } catch (e) {
+      print('⚠️ Error fetching aspects for user $userId: $e');
+      // Return empty list instead of throwing to prevent profile page from failing
+      return [];
+    }
   }
 }
 

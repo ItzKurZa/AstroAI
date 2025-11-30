@@ -56,7 +56,7 @@ class GeminiService {
         temperature: 0.7,
         topK: 40,
         topP: 0.95,
-        maxOutputTokens: 1024,
+        maxOutputTokens: 1024, // Increased for detailed responses when requested
       ),
       // No system instruction here - will be set per session
     );
@@ -77,11 +77,7 @@ class GeminiService {
   }
 
   /// Generate text from a simple prompt (for you_today descriptions)
-  /// Automatically retries with next key if current key fails
-  Future<String> generateText(String prompt, {int maxRetries = 3}) async {
-    int attempts = 0;
-    
-    while (attempts < maxRetries) {
+  Future<String> generateText(String prompt) async {
       try {
         if (_model == null) {
           throw Exception('GeminiService not initialized. Call initialize() first.');
@@ -122,53 +118,18 @@ class GeminiService {
         // Clean the response
         return _cleanGeminiResponse(text);
       } catch (e) {
-        attempts++;
         final errorStr = e.toString();
         
-        // Check if it's the Content format error - this might be SDK version issue
-        final isContentFormatError = errorStr.contains('Unhandled format for Content') || 
-            errorStr.contains('role: model');
-        
-        if (isContentFormatError) {
-          print('⚠️ Content format error detected, trying with next key... (attempt $attempts/$maxRetries)');
-          _keyManager.markCurrentKeyAsFailed(errorStr);
-          if (attempts < maxRetries) {
-            _reinitializeModels();
-            continue; // Retry with new key
-          } else {
-            // All keys failed with Content format error - return empty to trigger fallback
-            print('⚠️ All keys failed with Content format error, using fallback');
-            return '';
-          }
-        }
-        
-        // Check if we should retry with a different key
-        if (_keyManager.shouldRetryWithNewKey(e) && attempts < maxRetries) {
-          print('⚠️ Key error detected, switching to next key... (attempt $attempts/$maxRetries)');
-          _keyManager.markCurrentKeyAsFailed(errorStr);
-          _reinitializeModels();
-          continue; // Retry with new key
-        }
-        
-        // If it's the last attempt
-        if (attempts >= maxRetries) {
-          print('❌ Error generating text after $maxRetries attempts: $e');
-          // Check again if it's Content format error (in case it wasn't caught above)
+      // Check if it's the Content format error
           if (errorStr.contains('Unhandled format for Content') || 
               errorStr.contains('role: model')) {
-            print('⚠️ Content format error on final attempt, returning empty to trigger fallback');
+        print('⚠️ Content format error: $e');
             return '';
-          }
-          rethrow;
         }
         
-        // For non-key errors, throw immediately
-        print('Error generating text: $e');
+      print('❌ Error generating text: $e');
         rethrow;
       }
-    }
-    
-    throw Exception('Failed to generate text after $maxRetries attempts');
   }
 
   /// Generate daily horoscope content for a user
@@ -226,10 +187,6 @@ Provide the response in this exact JSON format:
 Only respond with valid JSON, no additional text.
 ''';
 
-    int attempts = 0;
-    const maxRetries = 3;
-    
-    while (attempts < maxRetries) {
     try {
       final response = await model.generateContent([Content.text(prompt)]);
       
@@ -270,30 +227,9 @@ Only respond with valid JSON, no additional text.
       // Parse JSON
       return _parseJson(cleanJson.trim());
     } catch (e) {
-        attempts++;
-        final errorStr = e.toString();
-        
-        // Check if we should retry with a different key
-        if (_keyManager.shouldRetryWithNewKey(e) && attempts < maxRetries) {
-          print('⚠️ Key error in horoscope generation, switching to next key... (attempt $attempts/$maxRetries)');
-          _keyManager.markCurrentKeyAsFailed(errorStr);
-          _reinitializeModels();
-          continue; // Retry with new key
-        }
-        
-        // If it's the last attempt or not a key-related error, return default
-        if (attempts >= maxRetries) {
-          print('❌ Error generating horoscope after $maxRetries attempts: $e');
-          return _getDefaultHoroscope();
-        }
-        
-        // For non-key errors, return default immediately
-      print('Error generating horoscope: $e');
+      print('❌ Error generating horoscope: $e');
       return _getDefaultHoroscope();
     }
-    }
-    
-    return _getDefaultHoroscope();
   }
 
   /// Start a chat session for consultation
@@ -357,40 +293,57 @@ Your personality:
 - Provide actionable advice based on planetary positions
 - Be encouraging and positive while being honest
 
-Language:
-- IMPORTANT: Always respond in the same language that the user uses to ask questions
-- If the user asks in Vietnamese, respond in Vietnamese
-- If the user asks in English, respond in English
-- If the user asks in any other language, respond in that same language
-- Match the user's language style and formality level
+Response Style:
+- IMPORTANT: Keep responses CONCISE and to the point (2-4 sentences for simple questions, 4-6 sentences for complex topics)
+- Be direct and clear - avoid unnecessary elaboration
+- Focus on the most important insights first
+- If the user asks a simple question, give a simple answer
+- Only provide detailed explanations when specifically asked
+
+Language Rules (STRICTLY ENFORCE):
+- You MUST detect the language of the user's message and respond ONLY in that same language
+- If the user writes in English, you MUST respond in English - NEVER use Vietnamese or any other language
+- If the user writes in Vietnamese, you MUST respond in Vietnamese - NEVER use English or any other language
+- NEVER mix languages in your response
+- NEVER start with greetings in a different language than the user's message
+- Example: If user says "I want to learn about...", respond in English starting with "Hello" or "Greetings", NOT "Chào" or "Xin chào"
+- Match the user's language style and formality level exactly
 
 When providing readings:
-- ALWAYS reference specific planetary positions and house placements from the user's birth chart
+- Reference specific planetary positions and house placements when relevant
 - Use the exact degrees and signs provided in the birth chart data
-- Explain how current transits affect the user's natal planets
-- Connect cosmic events to daily life with specific examples
-- Offer practical guidance based on astrological insights
-- When discussing houses, reference the specific house cusps and what planets are in each house
-- Mention aspects between planets when relevant (conjunctions, squares, trines, etc.)
+- Connect cosmic events to daily life with practical examples
+- Keep explanations brief but meaningful
+- Avoid repeating information unnecessarily
 
 The birth chart data you receive is calculated using professional astrological methods from FreeAstrologyAPI, 
-so you can trust its accuracy and provide detailed, personalized interpretations.
+so you can trust its accuracy and provide accurate, personalized interpretations.
 
 Greet the user warmly and offer astrological guidance.
 ''';
 
     // Create a new model with dynamic system instruction for this session
+    // Always get the key directly from key manager (no cache)
     final apiKey = _keyManager.getCurrentKey();
+    print('🔑 Creating new chat session with API key: ${apiKey.substring(0, 10)}...${apiKey.substring(apiKey.length - 4)}');
+    
+    // Create model directly with current key (no caching)
+    // Use full model name as per API documentation
     final sessionModel = GenerativeModel(
-      model: 'gemini-2.0-flash',
-      apiKey: apiKey,
+      model: 'gemini-2.0-flash', // SDK will handle the full path
+      apiKey: apiKey, // Direct from key manager, no cache
       generationConfig: GenerationConfig(
         temperature: 0.7,
         topK: 40,
         topP: 0.95,
-        maxOutputTokens: 1024,
+        maxOutputTokens: 1024, // Increased for detailed responses when requested
       ),
     );
+    
+    // Verify key is valid by checking it's not empty
+    if (apiKey.isEmpty || apiKey.length < 20) {
+      throw Exception('Invalid API key format');
+    }
 
     // Start chat - system instruction will be prepended to first message
     final chat = sessionModel.startChat();
@@ -403,23 +356,33 @@ Greet the user warmly and offer astrological guidance.
 
   /// Send a message in chat consultation
   /// Note: Chat sessions are tied to a specific key, so retry requires recreating the session
-  Future<String> sendChatMessage(ChatSession session, String message) async {
-    try {
-      // Check if this is the first message and we have system instruction
-      final systemInstruction = _sessionInstructions[session];
-      final messageToSend = systemInstruction != null
-          ? '$systemInstruction\n\nUser: $message'
-          : message;
-      
-      // Remove instruction after first use
-      if (systemInstruction != null) {
-        _sessionInstructions.remove(session);
-      }
-      
+  Future<String> sendChatMessage(ChatSession session, String message, {int maxRetries = 2}) async {
+    // Check if this is the first message and we have system instruction
+    final systemInstruction = _sessionInstructions[session];
+    
+    // Detect user's language and add language enforcement
+    final trimmedMessage = message.trim();
+    final messageSample = trimmedMessage.length > 50 
+        ? trimmedMessage.substring(0, 50) 
+        : trimmedMessage;
+    final isEnglish = RegExp(r'^[a-zA-Z]').hasMatch(messageSample);
+    final languageEnforcement = isEnglish 
+        ? '\n\nIMPORTANT: The user wrote in English. You MUST respond in English only. Do NOT use Vietnamese or any other language. Start with Hello or Greetings, NOT Chao or Xin chao.'
+        : '\n\nIMPORTANT: The user wrote in Vietnamese. You MUST respond in Vietnamese only.';
+    
+    final messageToSend = systemInstruction != null
+        ? '$systemInstruction$languageEnforcement\n\nUser: $message'
+        : '$languageEnforcement\n\nUser: $message';
+    
+    // Remove instruction after first use
+    if (systemInstruction != null) {
+      _sessionInstructions.remove(session);
+    }
+    
       // Try to send message and get response
       GenerateContentResponse response;
       try {
-        response = await session.sendMessage(Content.text(messageToSend));
+      response = await session.sendMessage(Content.text(messageToSend));
       } catch (sendError) {
         final errorStr = sendError.toString();
         // If it's Content format error during send, return helpful message
@@ -428,8 +391,11 @@ Greet the user warmly and offer astrological guidance.
           print('⚠️ Content format error during sendMessage: $sendError');
           return 'I apologize, but there was a communication issue. Please try sending your message again.';
         }
+      
         rethrow;
       }
+    
+    try {
       
       // Extract text from candidates to avoid Content format errors
       String rawText = '';
@@ -475,16 +441,11 @@ Greet the user warmly and offer astrological guidance.
         return 'I apologize, but there was a technical issue processing your message. Please try rephrasing your question or try again in a moment.';
       }
       
-      // If it's a key-related error, mark it as failed
-      if (_keyManager.shouldRetryWithNewKey(e)) {
-        print('⚠️ Key error in chat, marking current key as failed');
-        _keyManager.markCurrentKeyAsFailed(errorStr);
-        _reinitializeModels();
-        // Note: The session is still tied to the old key, so user needs to restart chat
-        return 'I apologize, but the cosmic connection seems disrupted. Please restart the conversation.';
+      // For errors, return error message
+      print('❌ Error in chat: $e');
+      if (errorStr.contains('403') || errorStr.contains('forbidden') || errorStr.contains('leaked')) {
+        return 'I apologize, but there was an authentication issue with the AI service. Please try again in a moment, or contact support if the problem persists.';
       }
-      
-      print('Error in chat: $e');
       return 'I apologize, but the cosmic connection seems disrupted. Please try again.';
     }
   }

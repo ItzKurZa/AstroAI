@@ -32,16 +32,66 @@ class _NotificationsPageState extends State<NotificationsPage> {
   }
 
   Future<void> _loadPrefs() async {
-    final prefs = await _repository.fetchPrefs(currentUserId);
-    setState(() {
-      _prefs = prefs;
-      _loading = false;
-    });
+    try {
+      final userId = currentUserId; // This will throw if no user
+      final prefs = await _repository.fetchPrefs(userId);
+      if (mounted) {
+        setState(() {
+          _prefs = prefs;
+          _loading = false;
+        });
+      }
+    } catch (e) {
+      // Only navigate to login if it's an authentication error
+      final errorMessage = e.toString();
+      if (errorMessage.contains('No user logged in') || 
+          errorMessage.contains('currentUserId')) {
+        if (mounted) {
+          // Use addPostFrameCallback to avoid navigation during build/pop
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted && Navigator.of(context).canPop()) {
+              // Don't navigate if we can pop (user is navigating back)
+              return;
+            }
+            if (mounted) {
+              Navigator.of(context).pushReplacementNamed('/auth/login');
+            }
+          });
+        }
+        return;
+      }
+      if (mounted) {
+        setState(() {
+          _loading = false;
+        });
+      }
+    }
   }
 
   Future<void> _updatePrefs(NotificationPrefs prefs) async {
-    setState(() => _prefs = prefs);
-    await _repository.updatePrefs(currentUserId, prefs);
+    try {
+      final userId = currentUserId; // This will throw if no user
+      setState(() => _prefs = prefs);
+      await _repository.updatePrefs(userId, prefs);
+    } catch (e) {
+      // Only navigate to login if it's an authentication error
+      final errorMessage = e.toString();
+      if (errorMessage.contains('No user logged in') || 
+          errorMessage.contains('currentUserId')) {
+        if (mounted) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            Navigator.of(context).pushReplacementNamed('/auth/login');
+          });
+        }
+        return;
+      }
+      // Revert state on error
+      if (mounted) {
+        setState(() {
+          // Keep current prefs on error
+        });
+      }
+    }
   }
 
   @override

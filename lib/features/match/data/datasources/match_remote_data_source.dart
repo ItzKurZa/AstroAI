@@ -7,6 +7,8 @@ import '../models/match_profile_model.dart';
 class MatchRemoteDataSource {
   MatchRemoteDataSource(this._firestore);
 
+  // Note: _firestore is kept for future use when direct Firestore queries are needed
+  // ignore: unused_field
   final FirebaseFirestore _firestore;
   final NearbyUsersService _nearbyService = NearbyUsersService.instance;
 
@@ -58,16 +60,5 @@ class MatchRemoteDataSource {
     }
   }
 
-  /// Create a document snapshot-like object from user data
-  /// Returns a simple map with id and data
-  Map<String, dynamic> _createDocumentSnapshot(
-    String id,
-    Map<String, dynamic> data,
-  ) {
-    return {
-      'id': id,
-      'data': data,
-    };
-  }
 }
 

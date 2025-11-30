@@ -46,9 +46,20 @@ class _HoroscopePageState extends State<HoroscopePage> {
       }
     } catch (e) {
       print('Error loading astrological events: $e');
-      // If no user, navigate to login
-      if (mounted && e.toString().contains('No user logged in')) {
-        Navigator.of(context).pushReplacementNamed('/auth/login');
+      // Only navigate to login if it's an authentication error and page is still mounted
+      final errorMessage = e.toString();
+      if (mounted && (errorMessage.contains('No user logged in') || 
+          errorMessage.contains('currentUserId'))) {
+        // Use addPostFrameCallback to avoid navigation during build/pop
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && Navigator.of(context).canPop()) {
+            // Don't navigate if we can pop (user is navigating back)
+            return;
+          }
+          if (mounted) {
+            Navigator.of(context).pushReplacementNamed('/auth/login');
+          }
+        });
         return;
       }
       if (mounted) {
@@ -62,11 +73,17 @@ class _HoroscopePageState extends State<HoroscopePage> {
   void _onGoDeeper() {
     if (_events.isEmpty) return;
     
-    // Navigate to chat page - user can ask AI about this event
-    // The AI will have access to user's birth chart and can provide personalized insights
+    final currentEvent = _events[_currentIndex];
+    
+    // Navigate to chat page with event information
+    // The AI will automatically receive a message about this event and ask what the user wants to know
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => const ChatPage(),
+        builder: (context) => ChatPage(
+          eventTitle: currentEvent.title,
+          eventDescription: currentEvent.description,
+          eventImpact: currentEvent.impact,
+        ),
       ),
     );
   }
@@ -117,52 +134,52 @@ class _HoroscopePageState extends State<HoroscopePage> {
                                 _onSwipeLeft();
                               }
                             },
-                            child: SingleChildScrollView(
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 16),
-                                child: Column(
-                                  children: [
-                                    const SizedBox(height: 16),
+                child: SingleChildScrollView(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Column(
+                      children: [
+                        const SizedBox(height: 16),
                                     // Event Title
-                                    Text(
+                        Text(
                                       _events[_currentIndex].title,
-                                      style: GoogleFonts.literata(
-                                        fontSize: 24,
-                                        fontWeight: FontWeight.w500,
-                                        color: Colors.white,
-                                        letterSpacing: 0.048,
-                                      ),
-                                      textAlign: TextAlign.center,
-                                    ),
-                                    const SizedBox(height: 4),
+                          style: GoogleFonts.literata(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.white,
+                            letterSpacing: 0.048,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 4),
                                     // Event Date
-                                    Text(
+                            Text(
                                       _formatEventDate(_events[_currentIndex]),
-                                      style: GoogleFonts.literata(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w400,
+                              style: GoogleFonts.literata(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w400,
                                         color: AppColors.primary,
-                                      ),
+                            ),
                                       textAlign: TextAlign.center,
-                                    ),
-                                    const SizedBox(height: 24),
+                        ),
+                        const SizedBox(height: 24),
                                     // Astrological Explanation Block
                                     _InfoCard(
                                       description: _events[_currentIndex].description,
                                       impact: _events[_currentIndex].impact,
                                     ),
-                                    const SizedBox(height: 24),
-                                    // Go Deeper Button
-                                    _PrimaryButton(
-                                      label: 'Go Deeper',
+                        const SizedBox(height: 24),
+                        // Go Deeper Button
+                        _PrimaryButton(
+                          label: 'Go Deeper',
                                       onTap: _onGoDeeper,
-                                    ),
-                                    const SizedBox(height: 100),
-                                  ],
+                        ),
+                        const SizedBox(height: 100),
+                      ],
                                 ),
-                              ),
-                            ),
-                          ),
+                    ),
+                  ),
+                ),
               ),
             ],
           ),
@@ -188,9 +205,14 @@ class _HoroscopePageState extends State<HoroscopePage> {
       ),
       child: Row(
         children: [
-          GestureDetector(
-            onTap: () => Navigator.of(context).pop(),
-            child: const Icon(Icons.arrow_back, color: Colors.white, size: 24),
+          // No back button - HoroscopePage is a tab in AppShell, not a separate page
+          Text(
+            'Horoscope',
+            style: GoogleFonts.literata(
+              fontSize: 24,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+            ),
           ),
         ],
       ),
@@ -433,9 +455,9 @@ class _EmptyState extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               'Check back later for updates',
-              style: GoogleFonts.literata(
+        style: GoogleFonts.literata(
                 fontSize: 14,
-                fontWeight: FontWeight.w400,
+          fontWeight: FontWeight.w400,
                 color: Colors.white.withOpacity(0.5),
               ),
               textAlign: TextAlign.center,

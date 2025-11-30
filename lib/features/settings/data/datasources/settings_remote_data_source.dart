@@ -38,19 +38,6 @@ class SettingsRemoteDataSource {
     });
   }
 
-  /// Restore purchase (for premium subscription)
-  Future<Map<String, dynamic>> restorePurchase() async {
-    final user = _auth.currentUser;
-    if (user == null) throw Exception('User not authenticated');
-
-    // In production, integrate with in-app purchase service
-    // For now, return mock data
-    return {
-      'success': false,
-      'message': 'No purchases found to restore',
-    };
-  }
-
   /// Wipe account - delete all user data
   Future<void> wipeAccount() async {
     final user = _auth.currentUser;

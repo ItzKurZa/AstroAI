@@ -13,7 +13,6 @@ import 'features/auth/presentation/pages/login_page.dart';
 import 'features/chat/presentation/pages/chat_page.dart';
 import 'features/home/presentation/pages/home_page.dart';
 import 'features/horoscope/presentation/pages/horoscope_page.dart';
-import 'features/match/presentation/pages/match_page.dart';
 import 'features/notifications/presentation/pages/notifications_page.dart';
 import 'features/onboarding/presentation/pages/onboarding_page.dart';
 import 'features/profile/presentation/pages/profile_page.dart';
@@ -88,16 +87,20 @@ class _AppShellState extends State<AppShell> {
   int _currentIndex = 0;
 
   // Pages corresponding to navigation items: Home, AstroAI (Chat), Horoscope, Profile
-  final _pages = const [
-    HomePage(),
-    ChatPage(), // Changed from MatchPage to ChatPage for AstroAI
-    HoroscopePage(),
-    ProfilePage(),
-  ];
-
+  // Cache pages to prevent rebuilding
+  late final List<Widget> _pages;
+  
   @override
   void initState() {
     super.initState();
+    // Initialize pages once in initState to prevent rebuilds
+    _pages = [
+      HomePage(),
+      ChatPage(), // Changed from MatchPage to ChatPage for AstroAI
+      HoroscopePage(),
+      ProfilePage(),
+    ];
+    
     // Check authentication when AppShell is created
     SchedulerBinding.instance.addPostFrameCallback((_) {
       _checkAuth();
@@ -139,12 +142,41 @@ class _AppShellState extends State<AppShell> {
       ),
     ];
 
-    return Scaffold(
-      body: _pages[_currentIndex],
-      bottomNavigationBar: AppBottomNav(
-        items: navItems,
-        currentIndex: _currentIndex,
-        onChanged: (index) => setState(() => _currentIndex = index),
+    return PopScope(
+      canPop: false, // Prevent exiting app from main tabs
+      onPopInvoked: (didPop) async {
+        if (!didPop) {
+          // Show confirmation dialog before exiting
+          final shouldExit = await showDialog<bool>(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: const Text('Exit App?'),
+              content: const Text('Do you want to exit the app?'),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: const Text('Exit'),
+                ),
+              ],
+            ),
+          );
+          if (shouldExit == true && mounted) {
+            // Exit app (this will work on mobile, on web it will just close the dialog)
+            // For web, we can't actually exit, so just allow the pop
+          }
+        }
+      },
+      child: Scaffold(
+        body: _pages[_currentIndex],
+        bottomNavigationBar: AppBottomNav(
+          items: navItems,
+          currentIndex: _currentIndex,
+          onChanged: (index) => setState(() => _currentIndex = index),
+        ),
       ),
     );
   }

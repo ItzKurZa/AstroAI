@@ -233,26 +233,26 @@ class LocalCacheService {
     }
   }
 
-          /// Get planetary data from cache
+  /// Get planetary data from cache
           /// Also fixes old data that might have Pluto.png instead of Pluton.png
-          Future<Map<String, dynamic>?> getPlanetaryData(String dateId) async {
-            try {
-              final prefs = await SharedPreferences.getInstance();
-              final cached = prefs.getString('$_keyPlanetaryData$dateId');
-              if (cached == null) return null;
-              
-              final timestamp = prefs.getString('${_keyCacheTimestamp}planetary_$dateId');
-              if (timestamp != null) {
-                final cacheTime = DateTime.parse(timestamp);
-                final age = DateTime.now().difference(cacheTime);
-                // Cache valid for 24 hours (planetary data changes daily)
-                if (age.inHours > 24) {
-                  print('⚠️ Planetary data cache expired for $dateId');
-                  return null;
-                }
-              }
-              
-              final decoded = jsonDecode(cached) as Map<String, dynamic>;
+  Future<Map<String, dynamic>?> getPlanetaryData(String dateId) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cached = prefs.getString('$_keyPlanetaryData$dateId');
+      if (cached == null) return null;
+      
+      final timestamp = prefs.getString('${_keyCacheTimestamp}planetary_$dateId');
+      if (timestamp != null) {
+        final cacheTime = DateTime.parse(timestamp);
+        final age = DateTime.now().difference(cacheTime);
+        // Cache valid for 24 hours (planetary data changes daily)
+        if (age.inHours > 24) {
+          print('⚠️ Planetary data cache expired for $dateId');
+          return null;
+        }
+      }
+      
+      final decoded = jsonDecode(cached) as Map<String, dynamic>;
               final data = _decodeMap(decoded);
               
               // Fix old cached data that might have Pluto.png instead of Pluton.png
@@ -285,11 +285,11 @@ class LocalCacheService {
               }
               
               return data;
-            } catch (e) {
-              print('❌ Error reading planetary data cache: $e');
-              return null;
-            }
-          }
+    } catch (e) {
+      print('❌ Error reading planetary data cache: $e');
+      return null;
+    }
+  }
 
   /// Save birth chart data
   Future<void> saveBirthChart(String userId, Map<String, dynamic> birthChart) async {

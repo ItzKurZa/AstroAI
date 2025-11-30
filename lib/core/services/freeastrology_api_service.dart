@@ -18,17 +18,39 @@ class FreeAstrologyApiService {
   }
 
   FreeAstrologyApiService._()
-      : _baseUrl = (dotenv.env['ASTROLOGY_API_BASE_URL'] ?? 'https://api.freeastrologyapi.com').trim(),
+      : _baseUrl = _getBaseUrl(),
         _apiKey = dotenv.env['ASTROLOGY_API_KEY'] {
     // Log API configuration (without exposing key)
     final hasKey = _apiKey != null && _apiKey.isNotEmpty;
     final hasBaseUrl = _baseUrl.isNotEmpty;
-    print('🔧 FreeAstrologyAPI configured: baseUrl=${hasBaseUrl ? _baseUrl : "(empty)"}, hasApiKey=$hasKey');
+    final envUrl = dotenv.env['ASTROLOGY_API_BASE_URL'];
+    final usingDefault = envUrl == null || envUrl.trim().isEmpty;
+    
+    if (usingDefault) {
+      print('🔧 FreeAstrologyAPI configured: baseUrl=$_baseUrl (using default), hasApiKey=$hasKey');
+    } else {
+      print('🔧 FreeAstrologyAPI configured: baseUrl=$_baseUrl (from .env), hasApiKey=$hasKey');
+    }
+    
     if (!hasBaseUrl) {
       print('⚠️ No base URL found. API calls will be skipped. Using local calculation as fallback.');
     } else if (!hasKey) {
       print('⚠️ No API key found. API calls will likely fail. Using local calculation as fallback.');
+    } else {
+      print('✅ FreeAstrologyAPI is ready to use.');
     }
+  }
+
+  /// Get base URL from environment or use default
+  static String _getBaseUrl() {
+    final envUrl = dotenv.env['ASTROLOGY_API_BASE_URL'];
+    // Check if envUrl exists and is not empty after trimming
+    if (envUrl != null && envUrl.trim().isNotEmpty) {
+      return envUrl.trim();
+    }
+    // Default base URL if not configured or empty
+    // This is the official FreeAstrologyAPI endpoint
+    return 'https://api.freeastrologyapi.com';
   }
   
   /// Check if API is available (has base URL and key)

@@ -227,11 +227,11 @@ class _LoginPageState extends State<LoginPage> {
           padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
           child: Form(
             key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
                 _TopBar(onBack: () => Navigator.of(context).maybePop()),
-                const SizedBox(height: 24),
+              const SizedBox(height: 24),
                 if (_errorMessage != null) ...[
                   _ErrorBanner(message: _errorMessage!),
                   const SizedBox(height: 16),
@@ -243,14 +243,14 @@ class _LoginPageState extends State<LoginPage> {
                       : 'Login using Email',
                   onActionTap: _toggleLoginMethod,
                 ),
-                const SizedBox(height: 8),
+              const SizedBox(height: 8),
                 if (_loginUsingEmail)
                   _LoginTextField(
                     label: 'Email Address',
                     controller: _emailController,
                     hintText: 'you@example.com',
                     validator: _validateEmail,
-                    keyboardType: TextInputType.emailAddress,
+                keyboardType: TextInputType.emailAddress,
                     showLabel: false,
                   )
                 else
@@ -261,14 +261,14 @@ class _LoginPageState extends State<LoginPage> {
                     validator: _validateEmail,
                     onCountryTap: _showLoginCountryPicker,
                     showLabel: false,
-                  ),
+              ),
                 const SizedBox(height: 20),
                 _FieldHeader(
                   label: 'Create a Password',
                   actionLabel: null,
                   onActionTap: null,
                 ),
-                const SizedBox(height: 8),
+              const SizedBox(height: 8),
                 _LoginTextField(
                   label: 'Create a Password',
                   controller: _passwordController,
@@ -287,30 +287,30 @@ class _LoginPageState extends State<LoginPage> {
                       height: 20,
                     ),
                   ),
-                ),
-                const SizedBox(height: 24),
-                const _OrDivider(),
+              ),
+              const SizedBox(height: 24),
+              const _OrDivider(),
                 const SizedBox(height: 16),
-                const _SocialButton(
-                  iconData: Icons.g_mobiledata,
-                  label: 'Log In with Google',
-                ),
+              const _SocialButton(
+                iconData: Icons.g_mobiledata,
+                label: 'Log In with Google',
+              ),
                 const SizedBox(height: 12),
-                const _SocialButton(
-                  iconData: Icons.apple,
-                  label: 'Log In with Apple',
-                ),
+              const _SocialButton(
+                iconData: Icons.apple,
+                label: 'Log In with Apple',
+              ),
                 const SizedBox(height: 24),
                 Align(
                   alignment: Alignment.centerRight,
                   child: _ArrowButton(
                     onTap: _isLoading ? null : _handleLogin,
                     loading: _isLoading,
-                  ),
-                ),
+                          ),
+              ),
                 const SizedBox(height: 32),
                 const Center(child: HomeIndicatorBar()),
-              ],
+            ],
             ),
           ),
         ),
@@ -342,6 +342,8 @@ class _SignUpFlowPageState extends State<SignUpFlowPage> {
   String _selectedCountryCode = 'VN';
   String _dialCode = '+84';
   bool _obscurePassword = true;
+  // _isLoading is used in _completeSignUp() method (lines 460, 466, 633, 647)
+  // ignore: unused_field
   bool _isLoading = false;
 
   static const int _stepCount = 4;

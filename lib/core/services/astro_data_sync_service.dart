@@ -1,6 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../firebase/firestore_paths.dart';
-import 'freeastrology_api_service.dart';
 import 'freeastrology_firebase_sync.dart';
 
 /// Service to sync all astrology data from FreeAstrologyAPI to Firebase
@@ -16,7 +15,6 @@ class AstroDataSyncService {
   static final AstroDataSyncService instance = AstroDataSyncService._();
 
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final FreeAstrologyApiService _apiService = FreeAstrologyApiService.instance;
   final FreeAstrologyFirebaseSync _syncService = FreeAstrologyFirebaseSync.instance;
 
   /// Initialize and sync all data on app start
@@ -39,7 +37,6 @@ class AstroDataSyncService {
   /// Only calls API if data doesn't exist or is older than 1 day
   Future<void> _ensureTodayData() async {
     final today = DateTime.now();
-    final dateId = FirestorePaths.dateId(today);
 
     // Check planets_today
     final planetsDoc = await _firestore.doc(FirestorePaths.planetsTodayDoc(today)).get();
