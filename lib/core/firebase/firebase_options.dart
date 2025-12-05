@@ -1,34 +1,19 @@
 // This file will hold the FirebaseOptions for all platforms.
-// You must fill in the actual values from your Firebase project settings.
+// Values are loaded from .env file for security.
 
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
-    // TODO: Replace with actual platform detection and values
-    return const FirebaseOptions(
-      apiKey: String.fromEnvironment('FIREBASE_API_KEY', defaultValue: ''),
-      appId: String.fromEnvironment('FIREBASE_APP_ID', defaultValue: ''),
-      messagingSenderId: String.fromEnvironment(
-        'FIREBASE_MESSAGING_SENDER_ID',
-        defaultValue: '',
-      ),
-      projectId: String.fromEnvironment(
-        'FIREBASE_PROJECT_ID',
-        defaultValue: '',
-      ),
-      authDomain: String.fromEnvironment(
-        'FIREBASE_AUTH_DOMAIN',
-        defaultValue: '',
-      ),
-      storageBucket: String.fromEnvironment(
-        'FIREBASE_STORAGE_BUCKET',
-        defaultValue: '',
-      ),
-      measurementId: String.fromEnvironment(
-        'FIREBASE_MEASUREMENT_ID',
-        defaultValue: '',
-      ),
+    return FirebaseOptions(
+      apiKey: dotenv.env['FIREBASE_API_KEY'] ?? '',
+      appId: dotenv.env['FIREBASE_APP_ID'] ?? '',
+      messagingSenderId: dotenv.env['FIREBASE_MESSAGING_SENDER_ID'] ?? '',
+      projectId: dotenv.env['FIREBASE_PROJECT_ID'] ?? '',
+      authDomain: dotenv.env['FIREBASE_AUTH_DOMAIN'],
+      storageBucket: dotenv.env['FIREBASE_STORAGE_BUCKET'],
+      measurementId: dotenv.env['FIREBASE_MEASUREMENT_ID'],
     );
   }
 }

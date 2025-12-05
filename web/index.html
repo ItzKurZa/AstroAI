@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <!--
     If you are serving your web app in a path other than the root, change the
@@ -17,6 +17,7 @@
   <base href="$FLUTTER_BASE_HREF">
 
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="A new Flutter project.">
 
@@ -29,8 +30,20 @@
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
+  <!-- Google Sign-In Client ID -->
+  <!-- Will be injected from .env file by Flutter app -->
+  <meta id="google-signin-client-id" name="google-signin-client_id" content="">
+
   <title>ai_astrologer</title>
   <link rel="manifest" href="manifest.json">
+  
+  <!-- Google Sign-In for Web -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script>
+    // Google Client ID will be injected from Flutter app
+    // This is a fallback - the actual client ID is set via meta tag above
+    // and also passed to GoogleSignIn constructor in Dart code
+  </script>
 </head>
 <body>
   <script src="flutter_bootstrap.js" async></script>
