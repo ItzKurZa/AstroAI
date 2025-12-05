@@ -645,6 +645,7 @@ class _SignUpFlowPageState extends State<SignUpFlowPage> {
       // Update user profile in Firestore with astrological signs
       final firestore = FirebaseFirestore.instance;
       await firestore.collection('users').doc(userId).update({
+        'userId': userId,
         'sunSign': sunSign,
         'moonSign': moonSign,
         'ascendantSign': ascendantSign,

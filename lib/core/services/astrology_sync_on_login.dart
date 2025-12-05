@@ -4,7 +4,6 @@ import 'freeastrology_firebase_sync.dart';
 import 'location_service.dart';
 import 'local_cache_service.dart';
 import 'tip_of_day_service.dart';
-import 'astrological_event_generator.dart';
 
 /// Service to sync astrology data when user logs in
 /// 

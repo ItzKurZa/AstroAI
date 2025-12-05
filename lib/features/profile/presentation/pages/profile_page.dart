@@ -199,7 +199,6 @@ class _ProfilePageState extends State<ProfilePage> {
                 characteristics: data.characteristics,
                 aspects: data.aspects,
                 onProfileUpdated: () {
-                  // Reload profile when updated from settings
                   _reloadProfile();
                 },
               );
@@ -296,7 +295,7 @@ class _ProfileViewState extends State<_ProfileView> {
             const SizedBox(height: 16),
             _CharacteristicsSection(characteristics: widget.characteristics),
           ] else ...[
-            _AspectsView(profile: widget.profile, aspects: widget.aspects),
+            _AspectsView(profile: widget.profile, aspects: widget.aspects, widget: widget),
           ],
           const SizedBox(height: 120),
         ],
@@ -392,9 +391,9 @@ class _ProfileHeader extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   _PlanetSign(icon: Icons.wb_sunny_outlined, sign: profile.sunSign),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: 10),
                   _PlanetSign(icon: Icons.nightlight_outlined, sign: profile.moonSign),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: 10),
                   _PlanetSign(icon: Icons.person_outline, sign: profile.ascendantSign),
                 ],
               ),
@@ -925,10 +924,11 @@ class _ShareChartButton extends StatelessWidget {
 }
 
 class _AspectsView extends StatelessWidget {
-  const _AspectsView({required this.profile, required this.aspects});
+  const _AspectsView({required this.profile, required this.aspects, required this.widget});
 
   final UserProfile profile;
   final List<Map<String, dynamic>> aspects;
+  final dynamic widget;
 
   @override
   Widget build(BuildContext context) {
@@ -1109,6 +1109,7 @@ class _AspectsView extends StatelessWidget {
           const SizedBox(height: 24),
           _CharacteristicsTitle(),
           const SizedBox(height: 16),
+          _CharacteristicsSection(characteristics: widget.characteristics),
           // Characteristics should be shown in both tabs
           // But for now, let's keep it only in Chart tab as per original design
         ],

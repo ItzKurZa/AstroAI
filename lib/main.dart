@@ -113,7 +113,7 @@ class _AppShellState extends State<AppShell> {
     // Initialize pages once in initState to prevent rebuilds
     _pages = [
       HomePage(),
-      ChatPage(), // Changed from MatchPage to ChatPage for AstroAI
+      ChatPage(),
       HoroscopePage(),
       ProfilePage(),
     ];
